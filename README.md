@@ -1,98 +1,330 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# 💳 FinTech Wallet Microservices
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+![NestJS](https://img.shields.io/badge/NestJS-v11-red)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue)
+![MongoDB](https://img.shields.io/badge/MongoDB-Mongoose-green)
+![JWT](https://img.shields.io/badge/Auth-JWT-orange)
+![Microservices](https://img.shields.io/badge/Architecture-TCP%20Microservices-purple)
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+A NestJS microservices-based FinTech backend demonstrating authentication, wallet operations, transaction management, and simulated AEPS flow.
 
-## Description
+---
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+# 📑 Table of Contents
 
-## Project setup
+- Overview
+- Architecture
+- Features
+- Tech Stack
+- Installation
+- Environment Variables
+- MongoDB Setup
+- Running the Services
+- Service Ports
+- Request Flow
+- API Documentation
+- Future Improvements
 
-```bash
-$ npm install
+---
+
+# 🚀 Overview
+
+Services:
+
+- API Gateway
+- Auth Service
+- Wallet Service
+- Transaction Service
+
+Communication between services uses **NestJS TCP Microservices**.
+
+---
+
+# 🏗 Architecture
+
+```text
+                Client
+                   |
+                   v
+           API Gateway :3000
+                   |
+        -------------------------
+        |                       |
+        v                       v
+ Auth Service:3001      Wallet Service:3002
+                                 |
+                                 v
+                    Transaction Service:3003
+                                 |
+                                 v
+                              MongoDB
 ```
 
-## Compile and run the project
+---
+
+# ✨ Features
+
+- JWT Authentication
+- Register/Login
+- Refresh Token
+- Change Password
+- Wallet Management
+- Add Money
+- Withdraw Money
+- Transfer Money
+- Transaction History
+- Rollback Transaction
+- AEPS Balance (Simulation)
+- AEPS Withdraw (Simulation)
+- Callback API
+- TCP Microservices
+
+---
+
+# 🛠 Tech Stack
+
+- NestJS
+- TypeScript
+- MongoDB + Mongoose
+- Passport JWT
+- TCP Microservices
+
+---
+
+# 📦 Installation
 
 ```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+git clone https://github.com/YOUR_USERNAME/fintech-wallet-microservices.git
+cd fintech-wallet-microservices
+npm install
 ```
 
-## Run tests
+---
+
+# ⚙️ Environment Variables
+
+Create `.env`
+
+```env
+MONGO_URI=mongodb://127.0.0.1:27017/fintech?replicaSet=rs0
+JWT_SECRET=YOUR_SECRET_KEY
+JWT_EXPIRE=1d
+```
+
+---
+
+# 🗄 MongoDB
+
+Run MongoDB locally with replica set enabled.
+
+```text
+mongodb://127.0.0.1:27017/fintech?replicaSet=rs0
+```
+
+---
+
+# ▶ Running the Project
+
+Open four terminals.
 
 ```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+npm run start:dev api-gateway
 ```
-
-## Deployment
-
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
 
 ```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+npm run start:dev auth-service
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+```bash
+npm run start:dev wallet-service
+```
 
-## Resources
+```bash
+npm run start:dev transaction-service
+```
 
-Check out a few resources that may come in handy when working with NestJS:
+---
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+# 🌐 Service Ports
 
-## Support
+| Service             | Port |
+| ------------------- | ---: |
+| API Gateway         | 3000 |
+| Auth Service        | 3001 |
+| Wallet Service      | 3002 |
+| Transaction Service | 3003 |
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+---
 
-## Stay in touch
+# 🔄 Request Flow
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+```text
+Client
+   │
+   ▼
+API Gateway
+   │
+ TCP
+   │
+Auth / Wallet Service
+   │
+Transaction Service
+   │
+MongoDB
+```
 
-## License
+---
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+# 📡 API Documentation
+
+**Base URL**
+
+```text
+http://localhost:3000
+```
+
+For protected APIs use:
+
+```text
+Authorization: Bearer <JWT_TOKEN>
+```
+
+| Feature                  | Method | Endpoint                                           | Auth |
+| ------------------------ | ------ | -------------------------------------------------- | :--: |
+| Register                 | POST   | /auth/register                                     |  ❌  |
+| Login                    | POST   | /auth/login                                        |  ❌  |
+| Change Password          | PATCH  | /auth/change-password                              |  ✅  |
+| Refresh Token            | POST   | /auth/refresh                                      |  ❌  |
+| Logout                   | POST   | /auth/logout                                       |  ✅  |
+| My Wallet                | GET    | /wallet                                            |  ✅  |
+| Wallet Transactions      | GET    | /wallet/transactions?page=1&limit=10&type=&status= |  ✅  |
+| Wallet Balance           | POST   | /wallet/balance                                    |  ✅  |
+| Add Money                | POST   | /wallet/add-money                                  |  ✅  |
+| Withdraw Money           | POST   | /wallet/withdraw                                   |  ✅  |
+| Transfer Money           | POST   | /wallet/transfer                                   |  ✅  |
+| Transaction by Reference | GET    | /wallet/transaction/:referenceId                   |  ✅  |
+| Rollback                 | POST   | /wallet/rollback/:referenceId                      |  ✅  |
+| Callback                 | POST   | /wallet/callback                                   |  ✅  |
+| AEPS Withdraw            | POST   | /wallet/aeps/withdraw                              |  ✅  |
+| AEPS Balance             | POST   | /wallet/aeps/balance                               |  ✅  |
+
+## Sample Requests
+
+### Register
+
+```json
+{
+  "name": "sham",
+  "email": "sham@gmail.com",
+  "password": "123456"
+}
+```
+
+### Login
+
+```json
+{
+  "email": "anubhav@gmail.com",
+  "password": "123456"
+}
+```
+
+### Change Password
+
+```json
+{
+  "currentPassword": "123456",
+  "newPassword": "abcdef"
+}
+```
+
+### Refresh Token
+
+```json
+{
+  "refreshToken": "<refresh_token>"
+}
+```
+
+### Add Money
+
+```json
+{
+  "amount": 505
+}
+```
+
+### Withdraw Money
+
+```json
+{
+  "amount": 500
+}
+```
+
+### Transfer Money
+
+```json
+{
+  "receiverEmail": "ram@gmail.com",
+  "amount": 500
+}
+```
+
+### Callback
+
+```json
+{
+  "referenceId": "TXN20260720548323",
+  "status": "SUCCESS"
+}
+```
+
+### AEPS Withdraw
+
+```json
+{
+  "aadhaarNumber": "123412341234",
+  "bankName": "State Bank of India",
+  "amount": 500
+}
+```
+
+### AEPS Balance
+
+```json
+{
+  "aadhaarNumber": "123412341234",
+  "bankName": "State Bank of India"
+}
+```
+
+---
+
+# 🧪 Testing
+
+Use Postman, Thunder Client or Insomnia.
+
+---
+
+# 📈 Future Improvements
+
+- Payment Service
+- Commission Service
+- Notification Service
+- DMT
+- Swagger
+- Docker
+- RabbitMQ
+- Redis
+- Unit Tests
+
+---
+
+# 👨‍💻 Author
+
+**Anubhav Kumar**
+
+Backend Developer
+
+Tech: NestJS • Node.js • TypeScript • MongoDB • JWT • Microservices
