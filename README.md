@@ -1,158 +1,242 @@
 # 💳 FinTech Wallet Microservices
 
-![NestJS](https://img.shields.io/badge/NestJS-v11-red)
-![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue)
-![MongoDB](https://img.shields.io/badge/MongoDB-Mongoose-green)
+![NestJS](https://img.shields.io/badge/NestJS-v11-E0234E?logo=nestjs)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript)
+![MongoDB](https://img.shields.io/badge/MongoDB-Mongoose-47A248?logo=mongodb)
+![Redis](https://img.shields.io/badge/Redis-Caching-DC382D?logo=redis)
+![RabbitMQ](https://img.shields.io/badge/RabbitMQ-Events-FF6600?logo=rabbitmq)
 ![JWT](https://img.shields.io/badge/Auth-JWT-orange)
-![Microservices](https://img.shields.io/badge/Architecture-TCP%20Microservices-purple)
+![Architecture](https://img.shields.io/badge/Architecture-Microservices-purple)
 
-A NestJS microservices-based FinTech backend demonstrating authentication, wallet operations, transaction management, and simulated AEPS flow.
-
----
-
-# 📑 Table of Contents
-
-- Overview
-- Architecture
-- Features
-- Tech Stack
-- Installation
-- Environment Variables
-- MongoDB Setup
-- Running the Services
-- Service Ports
-- Request Flow
-- API Documentation
-- Future Improvements
+A production-style **FinTech Wallet Backend** built with **NestJS Microservices** following an event-driven architecture. The project demonstrates authentication, wallet management, transaction processing, commission calculation with Redis caching, RabbitMQ notifications, and admin management.
 
 ---
 
-# 🚀 Overview
+# 🚀 Features
 
-Services:
+## Authentication
 
-- API Gateway
-- Auth Service
-- Wallet Service
-- Transaction Service
+- User Registration
+- User Login
+- JWT Authentication
+- Refresh Token
+- Change Password
+- Logout
+- Role Based Authorization (Admin/User)
 
-Communication between services uses **NestJS TCP Microservices**.
+---
+
+## Wallet
+
+- Wallet Creation
+- Wallet Balance
+- Add Money
+- Withdraw Money
+- Transfer Money
+- Wallet Status Validation
+
+---
+
+## Transactions
+
+- Transaction History
+- Transaction Details
+- Rollback Transaction
+- Transaction Status
+- Callback API
+
+---
+
+## Commission Service
+
+- Create Commission Rules
+- Update Commission Rules
+- Delete Commission Rules
+- Get Commission Rules
+- Automatic Commission Calculation
+- Percentage Commission
+- Flat Commission
+- Redis Caching
+
+---
+
+## Notification Service
+
+Uses RabbitMQ events for notifications.
+
+Current Events:
+
+- Wallet Top-up
+- Wallet Withdrawal
+- Money Transfer
+- Rollback Transaction
+
+---
+
+## AEPS Simulation
+
+- AEPS Balance Enquiry
+- AEPS Cash Withdrawal
+
+---
+
+## Admin
+
+- Manage Commission Rules
+- View Users
+- Block Users
+- Unblock Users
+- Delete Users
 
 ---
 
 # 🏗 Architecture
 
 ```text
-                Client
-                   |
-                   v
-           API Gateway :3000
-                   |
-        -------------------------
-        |                       |
-        v                       v
- Auth Service:3001      Wallet Service:3002
-                                 |
-                                 v
-                    Transaction Service:3003
-                                 |
-                                 v
-                              MongoDB
+                           Client
+                              │
+                              ▼
+                    API Gateway (3000)
+                              │
+                  TCP Microservice Communication
+ ┌──────────────────────────────────────────────────────────┐
+ │                                                          │
+ ▼                ▼                 ▼               ▼
+Auth          Wallet          Transaction      Commission
+3001           3002             3003             3004
+ │               │                 │               │
+ │               │                 │               │
+ └───────────────┴──────────────┬──┴───────────────┘
+                                │
+                           MongoDB
+                                │
+                     Redis (Commission Cache)
+                                │
+                          RabbitMQ Events
+                                │
+                                ▼
+                    Notification Service (3006)
 ```
 
 ---
 
-# ✨ Features
+# 📂 Microservices
 
-- JWT Authentication
-- Register/Login
-- Refresh Token
-- Change Password
-- Wallet Management
-- Add Money
-- Withdraw Money
-- Transfer Money
-- Transaction History
-- Rollback Transaction
-- AEPS Balance (Simulation)
-- AEPS Withdraw (Simulation)
-- Callback API
-- TCP Microservices
+| Service              | Port |
+| -------------------- | ---- |
+| API Gateway          | 3000 |
+| Auth Service         | 3001 |
+| Wallet Service       | 3002 |
+| Transaction Service  | 3003 |
+| Commission Service   | 3004 |
+| Notification Service | 3006 |
 
 ---
 
 # 🛠 Tech Stack
 
+### Backend
+
 - NestJS
 - TypeScript
-- MongoDB + Mongoose
-- Passport JWT
+- Node.js
+
+### Database
+
+- MongoDB
+- Mongoose
+
+### Authentication
+
+- JWT
+- Custom Guards
+
+### Communication
+
 - TCP Microservices
+- RabbitMQ
+
+### Caching
+
+- Redis
+
+### Validation
+
+- class-validator
+- class-transformer
 
 ---
 
 # 📦 Installation
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/fintech-wallet-microservices.git
-cd fintech-wallet-microservices
+git clone https://github.com/anubhav-uchiha/fintech-wallet-microservice.git
+
+cd fintech-wallet-microservice
+
 npm install
 ```
 
 ---
 
-# ⚙️ Environment Variables
+# ⚙ Environment Variables
 
-Create `.env`
+Create a `.env`
 
 ```env
+PORT=3000
+
 MONGO_URI=mongodb://127.0.0.1:27017/fintech?replicaSet=rs0
-JWT_SECRET=YOUR_SECRET_KEY
-JWT_EXPIRE=1d
+
+JWT_SECRET=QWERTYUIOP@123456
+
+REDIS_HOST=127.0.0.1
+REDIS_PORT=6379
+
+RABBITMQ_URL=amqp://guest:guest@localhost:5672
 ```
 
 ---
 
-# 🗄 MongoDB
+# ▶ Running Services
 
-Run MongoDB locally with replica set enabled.
+Open six terminals.
 
-```text
-mongodb://127.0.0.1:27017/fintech?replicaSet=rs0
-```
-
----
-
-# ▶ Running the Project
-
-Open four terminals.
+### API Gateway
 
 ```bash
 npm run start:dev api-gateway
 ```
 
+### Auth Service
+
 ```bash
 npm run start:dev auth-service
 ```
+
+### Wallet Service
 
 ```bash
 npm run start:dev wallet-service
 ```
 
+### Transaction Service
+
 ```bash
 npm run start:dev transaction-service
 ```
 
----
+### Commission Service
 
-# 🌐 Service Ports
+```bash
+npm run start:dev commission-service
+```
 
-| Service             | Port |
-| ------------------- | ---: |
-| API Gateway         | 3000 |
-| Auth Service        | 3001 |
-| Wallet Service      | 3002 |
-| Transaction Service | 3003 |
+### Notification Service
+
+```bash
+npm run start:dev notification-service
+```
 
 ---
 
@@ -160,166 +244,192 @@ npm run start:dev transaction-service
 
 ```text
 Client
-   │
-   ▼
+
+ │
+
+ ▼
+
 API Gateway
-   │
- TCP
-   │
-Auth / Wallet Service
-   │
-Transaction Service
-   │
+
+ │
+
+ ├──────────────► Auth Service
+
+ │
+
+ ├──────────────► Wallet Service
+
+ │                      │
+
+ │                      ├────► Commission Service
+
+ │                      │
+
+ │                      ├────► Transaction Service
+
+ │                      │
+
+ │                      └────► RabbitMQ
+
+ │                                │
+
+ │                                ▼
+
+ │                     Notification Service
+
+ │
+
+ ▼
+
 MongoDB
 ```
 
 ---
 
-# 📡 API Documentation
+# 📡 API Endpoints
 
-**Base URL**
+## Authentication
+
+| Method | Endpoint              |
+| ------ | --------------------- |
+| POST   | /auth/register        |
+| POST   | /auth/login           |
+| PATCH  | /auth/change-password |
+| POST   | /auth/refresh         |
+| POST   | /auth/logout          |
+
+---
+
+## Wallet
+
+| Method | Endpoint                         |
+| ------ | -------------------------------- |
+| GET    | /wallet                          |
+| POST   | /wallet/add-money                |
+| POST   | /wallet/withdraw                 |
+| POST   | /wallet/transfer                 |
+| GET    | /wallet/transactions             |
+| GET    | /wallet/transaction/:referenceId |
+| POST   | /wallet/rollback/:referenceId    |
+| POST   | /wallet/callback                 |
+
+---
+
+## AEPS
+
+| Method | Endpoint              |
+| ------ | --------------------- |
+| POST   | /wallet/aeps/withdraw |
+| POST   | /wallet/aeps/balance  |
+
+---
+
+## Admin
+
+| Method | Endpoint                 |
+| ------ | ------------------------ |
+| POST   | /admin/commission        |
+| GET    | /admin/commission        |
+| GET    | /admin/commission/:id    |
+| PATCH  | /admin/commission/:id    |
+| DELETE | /admin/commission/:id    |
+| GET    | /admin/users             |
+| PATCH  | /admin/users/:id/block   |
+| PATCH  | /admin/users/:id/unblock |
+| DELETE | /admin/users/:id         |
+
+---
+
+# 📨 RabbitMQ Events
+
+Published Events
+
+- transaction.created
+- transaction.rollback
+
+Notification Service consumes these events and logs notifications.
+
+---
+
+# ⚡ Redis Usage
+
+Commission rules are cached using Redis.
+
+Flow:
 
 ```text
-http://localhost:3000
+Wallet Service
+
+      │
+
+      ▼
+
+Commission Service
+
+      │
+
+      ├── Redis (Cache Hit)
+
+      │
+
+      └── MongoDB (Cache Miss)
 ```
 
-For protected APIs use:
+---
+
+# 📌 Sample Transfer Flow
 
 ```text
-Authorization: Bearer <JWT_TOKEN>
+Transfer Request
+
+      │
+
+      ▼
+
+Wallet Service
+
+      │
+
+      ▼
+
+Commission Service
+
+      │
+
+      ▼
+
+Redis Cache
+
+      │
+
+      ▼
+
+MongoDB (if cache miss)
+
+      │
+
+      ▼
+
+Update Wallets
+
+      │
+
+      ▼
+
+Create Transactions
+
+      │
+
+      ▼
+
+Publish RabbitMQ Event
+
+      │
+
+      ▼
+
+Notification Service
 ```
-
-| Feature                  | Method | Endpoint                                           | Auth |
-| ------------------------ | ------ | -------------------------------------------------- | :--: |
-| Register                 | POST   | /auth/register                                     |  ❌  |
-| Login                    | POST   | /auth/login                                        |  ❌  |
-| Change Password          | PATCH  | /auth/change-password                              |  ✅  |
-| Refresh Token            | POST   | /auth/refresh                                      |  ❌  |
-| Logout                   | POST   | /auth/logout                                       |  ✅  |
-| My Wallet                | GET    | /wallet                                            |  ✅  |
-| Wallet Transactions      | GET    | /wallet/transactions?page=1&limit=10&type=&status= |  ✅  |
-| Wallet Balance           | POST   | /wallet/balance                                    |  ✅  |
-| Add Money                | POST   | /wallet/add-money                                  |  ✅  |
-| Withdraw Money           | POST   | /wallet/withdraw                                   |  ✅  |
-| Transfer Money           | POST   | /wallet/transfer                                   |  ✅  |
-| Transaction by Reference | GET    | /wallet/transaction/:referenceId                   |  ✅  |
-| Rollback                 | POST   | /wallet/rollback/:referenceId                      |  ✅  |
-| Callback                 | POST   | /wallet/callback                                   |  ✅  |
-| AEPS Withdraw            | POST   | /wallet/aeps/withdraw                              |  ✅  |
-| AEPS Balance             | POST   | /wallet/aeps/balance                               |  ✅  |
-
-## Sample Requests
-
-### Register
-
-```json
-{
-  "name": "sham",
-  "email": "sham@gmail.com",
-  "password": "123456"
-}
-```
-
-### Login
-
-```json
-{
-  "email": "anubhav@gmail.com",
-  "password": "123456"
-}
-```
-
-### Change Password
-
-```json
-{
-  "currentPassword": "123456",
-  "newPassword": "abcdef"
-}
-```
-
-### Refresh Token
-
-```json
-{
-  "refreshToken": "<refresh_token>"
-}
-```
-
-### Add Money
-
-```json
-{
-  "amount": 505
-}
-```
-
-### Withdraw Money
-
-```json
-{
-  "amount": 500
-}
-```
-
-### Transfer Money
-
-```json
-{
-  "receiverEmail": "ram@gmail.com",
-  "amount": 500
-}
-```
-
-### Callback
-
-```json
-{
-  "referenceId": "TXN20260720548323",
-  "status": "SUCCESS"
-}
-```
-
-### AEPS Withdraw
-
-```json
-{
-  "aadhaarNumber": "123412341234",
-  "bankName": "State Bank of India",
-  "amount": 500
-}
-```
-
-### AEPS Balance
-
-```json
-{
-  "aadhaarNumber": "123412341234",
-  "bankName": "State Bank of India"
-}
-```
-
----
-
-# 🧪 Testing
-
-Use Postman, Thunder Client or Insomnia.
-
----
-
-# 📈 Future Improvements
-
-- Payment Service
-- Commission Service
-- Notification Service
-- DMT
-- Swagger
-- Docker
-- RabbitMQ
-- Redis
-- Unit Tests
-
----
 
 # 👨‍💻 Author
 
@@ -327,4 +437,15 @@ Use Postman, Thunder Client or Insomnia.
 
 Backend Developer
 
-Tech: NestJS • Node.js • TypeScript • MongoDB • JWT • Microservices
+### Skills
+
+- NestJS
+- Node.js
+- TypeScript
+- MongoDB
+- Redis
+- RabbitMQ
+- JWT
+- Microservices
+- REST APIs
+- Mongoose
