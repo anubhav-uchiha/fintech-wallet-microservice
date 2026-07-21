@@ -1,0 +1,194 @@
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
+
+import { RegisterDto } from './dto/register.dto';
+
+import { Connection } from 'mongoose';
+import { InjectConnection } from '@nestjs/mongoose';
+import { JwtService } from '@nestjs/jwt';
+import { LoginDto } from './dto/login.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
+import { UsersService } from '../users/users.service';
+import {
+  comparePassword,
+  hashPassword,
+} from 'apps/fintech-wallet-microservices/src/common/utils/password.util';
+import { ClientProxy } from '@nestjs/microservices';
+import { firstValueFrom } from 'rxjs';
+
+@Injectable()
+export class AuthService {
+  constructor(
+    private readonly usersService: UsersService,
+    private readonly jwtService: JwtService,
+
+    @InjectConnection()
+    private readonly connection: Connection,
+
+    @Inject('WALLET_SERVICE')
+    private readonly walletClient: ClientProxy,
+  ) {}
+
+  async register(registerDto: RegisterDto) {
+    const session = await this.connection.startSession();
+
+    session.startTransaction();
+
+    try {
+      const existingUser = await this.usersService.findByEmail(
+        registerDto.email,
+      );
+
+      if (existingUser) {
+        throw new ConflictException('Email alredy exists');
+      }
+
+      const hashedPassword = await hashPassword(registerDto.password);
+
+      const user = await this.usersService.createUser(
+        {
+          name: registerDto.name,
+          email: registerDto.email,
+          password: hashedPassword,
+        },
+        session,
+      );
+
+      const wallet = await firstValueFrom(
+        this.walletClient.send(
+          { cmd: 'create_wallet' },
+          {
+            userId: user._id.toString(),
+          },
+        ),
+      );
+
+      await session.commitTransaction();
+
+      const { password, ...userResponse } = user.toObject();
+
+      return {
+        message: 'User registered successfully',
+        data: {
+          user: userResponse,
+          wallet,
+        },
+      };
+    } catch (error) {
+      await session.abortTransaction();
+      throw error;
+    } finally {
+      session.endSession();
+    }
+  }
+
+  async login(loginDto: LoginDto) {
+    console.log('JWT_SECRET:', process.env.JWT_SECRET);
+    console.log('MONGO_URI:', process.env.MONGO_URI);
+    const user = await this.usersService.findByEmailWithPassword(
+      loginDto.email,
+    );
+    if (!user) {
+      throw new UnauthorizedException('Invalid email or password');
+    }
+
+    const isPasswordValid = await comparePassword(
+      loginDto.password,
+      user.password,
+    );
+
+    if (!isPasswordValid) {
+      throw new UnauthorizedException('Invalid email or password');
+    }
+
+    const payload = {
+      sub: user._id.toString(),
+      email: user.email,
+    };
+
+    const accessToken = await this.jwtService.signAsync(payload, {
+      expiresIn: '1d',
+    });
+
+    const refreshToken = await this.jwtService.signAsync(payload, {
+      expiresIn: '7d',
+    });
+
+    return {
+      message: 'Login successful',
+      accessToken,
+      refreshToken,
+    };
+  }
+
+  async findUserByEmail(email: string) {
+    return this.usersService.findByEmail(email);
+  }
+
+  async changePassword(userId: string, dto: ChangePasswordDto) {
+    const user = await this.usersService.findByIdWithPassword(userId);
+
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    if (!user.isActive) {
+      throw new UnauthorizedException('Account is blocked by admin');
+    }
+
+    const isMatch = await comparePassword(dto.currentPassword, user.password);
+
+    if (!isMatch) {
+      throw new UnauthorizedException('Current password is incorrect');
+    }
+
+    const samePassword = await comparePassword(dto.newPassword, user.password);
+
+    if (samePassword) {
+      throw new BadRequestException(
+        'New password cannot be same as current password',
+      );
+    }
+
+    const hashedPassword = await hashPassword(dto.newPassword);
+
+    await this.usersService.updatePassword(userId, hashedPassword);
+
+    return {
+      message: 'Password changed successfully',
+    };
+  }
+
+  async refreshToken(refreshToken: string) {
+    try {
+      const payload = await this.jwtService.verifyAsync(refreshToken);
+
+      const accessToken = await this.jwtService.signAsync(
+        {
+          sub: payload.sub,
+          email: payload.email,
+        },
+        {
+          expiresIn: '15m',
+        },
+      );
+
+      return {
+        accessToken,
+      };
+    } catch {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+  }
+
+  async logout() {
+    return {
+      message: 'Logged out successfully',
+    };
+  }
+}
