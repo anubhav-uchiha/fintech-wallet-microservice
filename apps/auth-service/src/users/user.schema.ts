@@ -23,6 +23,13 @@ export class User {
     default: true,
   })
   isActive!: boolean;
+
+  @Prop({
+    type: String,
+    enum: ['USER', 'ADMIN'],
+    default: 'USER',
+  })
+  role!: 'USER' | 'ADMIN';
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);

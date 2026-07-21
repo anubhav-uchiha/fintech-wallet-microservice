@@ -1,14 +1,30 @@
 import { Controller } from '@nestjs/common';
-import { MessagePattern, Payload } from '@nestjs/microservices';
+import {
+  Ctx,
+  EventPattern,
+  MessagePattern,
+  Payload,
+  RmqContext,
+} from '@nestjs/microservices';
 import { TransactionService } from './transaction.service';
 
 @Controller()
 export class TransactionController {
   constructor(private readonly transactionService: TransactionService) {}
 
-  @MessagePattern({ cmd: 'create_transaction' })
-  createTransaction(@Payload() data: any) {
-    return this.transactionService.createTransaction(data);
+  @EventPattern('transaction.created')
+  async handleTransactionCreated(
+    @Payload() data: any,
+    @Ctx() context: RmqContext,
+  ) {
+    console.log('📩 Transaction Event:', data);
+
+    await this.transactionService.createTransaction(data);
+
+    const channel = context.getChannelRef();
+    const message = context.getMessage();
+
+    channel.ack(message);
   }
 
   @MessagePattern({ cmd: 'get_transactions' })
@@ -36,12 +52,12 @@ export class TransactionController {
     );
   }
 
-  @MessagePattern({
-    cmd: 'find_transaction_by_reference',
-  })
-  findTransactionByReference(@Payload() referenceId: string) {
-    return this.transactionService.findTransactionByReference(referenceId);
-  }
+  // @MessagePattern({
+  //   cmd: 'find_transaction_by_reference',
+  // })
+  // findTransactionByReference(@Payload() referenceId: string) {
+  //   return this.transactionService.findTransactionByReference(referenceId);
+  // }
 
   @MessagePattern({ cmd: 'find_transaction_by_reference' })
   findByReference(@Payload() referenceId: string) {
@@ -55,11 +71,19 @@ export class TransactionController {
     return this.transactionService.findTransferTransactions(transferGroupId);
   }
 
-  @MessagePattern({
-    cmd: 'mark_transaction_rollback',
-  })
-  markRollback(@Payload() transferGroupId: string) {
-    return this.transactionService.markRollback(transferGroupId);
+  @EventPattern('transaction.rollback')
+  async rollback(
+    @Payload() transferGroupId: string,
+    @Ctx() context: RmqContext,
+  ) {
+    console.log('📩 Rollback Event:', transferGroupId);
+
+    await this.transactionService.markRollback(transferGroupId);
+
+    const channel = context.getChannelRef();
+    const message = context.getMessage();
+
+    channel.ack(message);
   }
 
   @MessagePattern({

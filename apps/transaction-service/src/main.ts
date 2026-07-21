@@ -6,17 +6,23 @@ async function bootstrap() {
   const app = await NestFactory.createMicroservice<MicroserviceOptions>(
     TransactionServiceModule,
     {
-      transport: Transport.TCP,
+      transport: Transport.RMQ,
       options: {
-        host: '127.0.0.1',
-        port: 3003,
+        urls: ['amqp://guest:guest@localhost:5672'],
+        queue: 'transaction_queue',
+
+        noAck: false,
+
+        queueOptions: {
+          durable: true,
+        },
       },
     },
   );
 
   await app.listen();
 
-  console.log('Transaction Service Running on Port 3003');
+  console.log('Transaction Service Running on RabbitMQ');
 }
 
 bootstrap();

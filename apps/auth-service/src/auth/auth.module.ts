@@ -8,10 +8,12 @@ import { AuthService } from './auth.service';
 import { UsersModule } from '../users/users.module';
 import { JwtStrategy } from './strategies/jwt.strategy/jwt.strategy';
 import { ClientsModule, Transport } from '@nestjs/microservices';
+import { RabbitMQModule } from '../common/rabbitmq/rabbitmq.module';
 
 @Module({
   imports: [
     UsersModule,
+    RabbitMQModule,
 
     PassportModule.register({
       defaultStrategy: 'jwt',

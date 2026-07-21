@@ -38,4 +38,29 @@ export class AuthController {
   logout() {
     return this.authService.logout();
   }
+
+  @MessagePattern({ cmd: 'get_all_users' })
+  getAllUsers() {
+    return this.authService.getUsers();
+  }
+
+  @MessagePattern({ cmd: 'get_user' })
+  getUser(@Payload() id: string) {
+    return this.authService.getUser(id);
+  }
+
+  @MessagePattern({ cmd: 'block_user' })
+  blockUser(@Payload() id: string) {
+    return this.authService.blockUser(id);
+  }
+
+  @MessagePattern({ cmd: 'unblock_user' })
+  unblockUser(@Payload() id: string) {
+    return this.authService.unblockUser(id);
+  }
+
+  @MessagePattern({ cmd: 'delete_user' })
+  deleteUser(@Payload() id: string) {
+    return this.authService.deleteUser(id);
+  }
 }

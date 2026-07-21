@@ -18,8 +18,9 @@ import {
   comparePassword,
   hashPassword,
 } from 'apps/fintech-wallet-microservices/src/common/utils/password.util';
-import { ClientProxy } from '@nestjs/microservices';
+import { ClientProxy, RpcException } from '@nestjs/microservices';
 import { firstValueFrom } from 'rxjs';
+import { RabbitMQService } from '../common/rabbitmq/rabbitmq.service';
 
 @Injectable()
 export class AuthService {
@@ -32,6 +33,8 @@ export class AuthService {
 
     @Inject('WALLET_SERVICE')
     private readonly walletClient: ClientProxy,
+
+    private readonly rabbitMQService: RabbitMQService,
   ) {}
 
   async register(registerDto: RegisterDto) {
@@ -55,6 +58,7 @@ export class AuthService {
           name: registerDto.name,
           email: registerDto.email,
           password: hashedPassword,
+          role: registerDto.role ?? 'USER',
         },
         session,
       );
@@ -109,6 +113,7 @@ export class AuthService {
     const payload = {
       sub: user._id.toString(),
       email: user.email,
+      role: user.role,
     };
 
     const accessToken = await this.jwtService.signAsync(payload, {
@@ -189,6 +194,74 @@ export class AuthService {
   async logout() {
     return {
       message: 'Logged out successfully',
+    };
+  }
+
+  // ===========================
+  // ADMIN APIs
+  // ===========================
+
+  async getUsers() {
+    return this.usersService.getAllUsers();
+  }
+
+  async getUser(id: string) {
+    const user = await this.usersService.getUserById(id);
+
+    if (!user) {
+      throw new RpcException('User not found');
+    }
+
+    return user;
+  }
+
+  async blockUser(id: string) {
+    const user = await this.usersService.blockUser(id);
+
+    if (!user) {
+      throw new RpcException('User not found');
+    }
+
+    await this.rabbitMQService.publish('USER_BLOCKED', {
+      userId: user._id,
+      email: user.email,
+      name: user.name,
+    });
+
+    return {
+      message: 'User blocked successfully',
+      user,
+    };
+  }
+
+  async unblockUser(id: string) {
+    const user = await this.usersService.unblockUser(id);
+
+    if (!user) {
+      throw new RpcException('User not found');
+    }
+
+    return {
+      message: 'User unblocked successfully',
+      user,
+    };
+  }
+
+  async deleteUser(id: string) {
+    const user = await this.usersService.deleteUser(id);
+
+    if (!user) {
+      throw new RpcException('User not found');
+    }
+
+    await this.rabbitMQService.publish('USER_DELETED', {
+      userId: user._id,
+      email: user.email,
+      name: user.name,
+    });
+
+    return {
+      message: 'User deleted successfully',
     };
   }
 }

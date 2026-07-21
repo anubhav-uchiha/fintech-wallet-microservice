@@ -28,6 +28,15 @@
         "tsConfigPath": "apps/auth-service/tsconfig.app.json"
       }
     },
+    "commission-service": {
+      "type": "application",
+      "root": "apps/commission-service",
+      "entryFile": "main",
+      "sourceRoot": "apps/commission-service/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/commission-service/tsconfig.app.json"
+      }
+    },
     "fintech-wallet-microservices": {
       "type": "application",
       "root": "apps/fintech-wallet-microservices",
@@ -35,6 +44,15 @@
       "sourceRoot": "apps/fintech-wallet-microservices/src",
       "compilerOptions": {
         "tsConfigPath": "apps/fintech-wallet-microservices/tsconfig.app.json"
+      }
+    },
+    "notification-service": {
+      "type": "application",
+      "root": "apps/notification-service",
+      "entryFile": "main",
+      "sourceRoot": "apps/notification-service/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/notification-service/tsconfig.app.json"
       }
     },
     "transaction-service": {

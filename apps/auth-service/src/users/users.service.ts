@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
+
 import { User, UserDocument } from './user.schema';
 
 @Injectable()
@@ -20,36 +21,38 @@ export class UsersService {
   }
 
   async findByEmail(email: string): Promise<UserDocument | null> {
-    return await this.userModel.findOne({ email });
-  }
-
-  async findByEmailWithPassword(email: string): Promise<UserDocument | null> {
-    return await this.userModel
-      .findOne({ email })
-      .select('+password +isActive');
-  }
-
-  async findById(userId: string): Promise<UserDocument | null> {
-    return await this.userModel.findById(userId);
-  }
-
-  async updateProfile(
-    userId: string,
-    updateData: Partial<User>,
-  ): Promise<UserDocument | null> {
-    return await this.userModel.findByIdAndUpdate(userId, updateData, {
-      new: true,
-      runValidators: true,
+    return this.userModel.findOne({
+      email,
     });
   }
 
-  async updatePassword(email: string, password: string) {
-    return await this.userModel.findOneAndUpdate(
-      { email },
+  async findByEmailWithPassword(email: string): Promise<UserDocument | null> {
+    return this.userModel
+      .findOne({ email })
+      .select('+password +isActive +role');
+  }
+
+  async findById(userId: string) {
+    return this.userModel.findById(userId);
+  }
+
+  async findByIdWithPassword(userId: string) {
+    return this.userModel.findById(userId).select('+password +isActive');
+  }
+
+  async getAllUsers() {
+    return this.userModel.find().select('-password');
+  }
+
+  async getUserById(id: string) {
+    return this.userModel.findById(id).select('-password');
+  }
+
+  async blockUser(id: string) {
+    return this.userModel.findByIdAndUpdate(
+      id,
       {
-        password,
-        otp: undefined,
-        otpExpire: undefined,
+        isActive: false,
       },
       {
         new: true,
@@ -57,19 +60,31 @@ export class UsersService {
     );
   }
 
-  async findByIdWithPassword(userId: string): Promise<UserDocument | null> {
-    return await this.userModel.findById(userId).select('+password +isActive');
-  }
-
-  async updateProfileImage(userId: string, image: string) {
-    return await this.userModel.findByIdAndUpdate(
+  async updatePassword(userId: string, password: string) {
+    return this.userModel.findByIdAndUpdate(
       userId,
       {
-        profileImage: image,
+        password,
       },
       {
         new: true,
       },
     );
+  }
+
+  async unblockUser(id: string) {
+    return this.userModel.findByIdAndUpdate(
+      id,
+      {
+        isActive: true,
+      },
+      {
+        new: true,
+      },
+    );
+  }
+
+  async deleteUser(id: string) {
+    return this.userModel.findByIdAndDelete(id);
   }
 }

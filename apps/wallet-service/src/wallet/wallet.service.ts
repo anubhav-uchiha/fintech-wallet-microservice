@@ -14,20 +14,27 @@ import { AepsWithdrawDto } from './dto/aeps-withdraw.dto';
 import { AepsBalanceDto } from './dto/aeps-balance.dto';
 import { ClientProxy } from '@nestjs/microservices';
 import { firstValueFrom } from 'rxjs';
-import { calculateCommission } from 'apps/fintech-wallet-microservices/src/common/utils/calculate-commission';
+import { RabbitMQService } from 'apps/fintech-wallet-microservices/src/common/rabbitmq/rabbitmq.service';
 
 @Injectable()
 export class WalletService {
   constructor(
     @InjectModel(Wallet.name)
     private readonly walletModel: Model<WalletDocument>,
+
     @InjectConnection()
     private readonly connection: Connection,
 
-    @Inject('TRANSACTION_SERVICE')
-    private readonly transactionClient: ClientProxy,
     @Inject('AUTH_SERVICE')
     private readonly authClient: ClientProxy,
+
+    @Inject('TRANSACTION_SERVICE')
+    private readonly transactionClient: ClientProxy,
+
+    @Inject('COMMISSION_SERVICE')
+    private readonly commissionClient: ClientProxy,
+
+    private readonly rabbitMQService: RabbitMQService,
   ) {}
 
   private ensureWalletIsActive(wallet: WalletDocument) {
@@ -69,8 +76,11 @@ export class WalletService {
   }
 
   async addMoney(userId: string, amount: number) {
-    const session = await this.connection.startSession();
+    if (amount <= 0) {
+      throw new BadRequestException('Amount must be greater than zero');
+    }
 
+    const session = await this.connection.startSession();
     session.startTransaction();
 
     try {
@@ -84,33 +94,61 @@ export class WalletService {
 
       this.ensureWalletIsActive(wallet);
 
-      if (wallet.status === 'FROZEN') {
-        throw new BadRequestException('Wallet is frozen');
-      }
-
-      wallet.balance += amount;
-
-      await wallet.save({ session });
-
-      await firstValueFrom(
-        this.transactionClient.send(
-          { cmd: 'create_transaction' },
+      // Get commission from Commission Service
+      const commissionData = await firstValueFrom(
+        this.commissionClient.send(
+          { cmd: 'calculate_commission' },
           {
-            userId: wallet.userId,
-            walletId: wallet._id,
+            serviceType: 'ADD_MONEY',
             amount,
-            type: 'CREDIT',
-            status: 'SUCCESS',
-            description: 'Wallet Topup',
           },
         ),
       );
+
+      const commission = commissionData.commission;
+
+      wallet.balance += amount - commission;
+
+      await wallet.save({ session });
+
+      // Wallet Credit Transaction
+      await this.rabbitMQService.publish('transaction.created', {
+        userId: wallet.userId,
+        walletId: wallet._id,
+        amount,
+        type: 'CREDIT',
+        status: 'SUCCESS',
+        description: 'Wallet Topup',
+      });
+
+      // Commission Transaction
+      if (commission > 0) {
+        await this.rabbitMQService.publish('transaction.created', {
+          userId: wallet.userId,
+          walletId: wallet._id,
+          amount: commission,
+          type: 'DEBIT',
+          status: 'SUCCESS',
+          description: 'Add Money Commission',
+        });
+      }
+
+      // Notification
+      await this.rabbitMQService.publish('wallet.notification', {
+        userId: wallet.userId,
+        event: 'ADD_MONEY',
+        amount,
+        commission,
+        balance: wallet.balance,
+      });
 
       await session.commitTransaction();
 
       return {
         message: 'Money added successfully',
-        wallet,
+        amount,
+        commission,
+        walletBalance: wallet.balance,
       };
     } catch (error) {
       await session.abortTransaction();
@@ -126,7 +164,6 @@ export class WalletService {
     }
 
     const session = await this.connection.startSession();
-
     session.startTransaction();
 
     try {
@@ -140,36 +177,70 @@ export class WalletService {
 
       this.ensureWalletIsActive(wallet);
 
-      if (wallet.balance < amount) {
-        throw new BadRequestException('Insufficient balance');
-      }
-
-      wallet.balance -= amount;
-
-      await wallet.save({
-        session,
-      });
-
-      await firstValueFrom(
-        this.transactionClient.send(
+      // Calculate Commission
+      const commissionData = await firstValueFrom(
+        this.commissionClient.send(
+          { cmd: 'calculate_commission' },
           {
-            cmd: 'create_transaction',
-          },
-          {
-            userId: wallet.userId,
-            walletId: wallet._id,
+            serviceType: 'WITHDRAW',
             amount,
-            type: 'DEBIT',
-            status: 'SUCCESS',
-            description: 'Wallet Withdrawal',
           },
         ),
       );
+
+      const commission = commissionData.commission;
+      const totalDebit = commissionData.totalDebit;
+
+      if (wallet.balance < totalDebit) {
+        throw new BadRequestException(
+          `Insufficient balance. Required ₹${totalDebit}`,
+        );
+      }
+
+      // Deduct amount + commission
+      wallet.balance -= totalDebit;
+
+      await wallet.save({ session });
+
+      // Withdrawal Transaction
+      await this.rabbitMQService.publish('transaction.created', {
+        userId: wallet.userId,
+        walletId: wallet._id,
+        amount,
+        type: 'DEBIT',
+        status: 'SUCCESS',
+        description: 'Wallet Withdrawal',
+      });
+
+      // Commission Transaction
+      if (commission > 0) {
+        await this.rabbitMQService.publish('transaction.created', {
+          userId: wallet.userId,
+          walletId: wallet._id,
+          amount: commission,
+          type: 'DEBIT',
+          status: 'SUCCESS',
+          description: 'Withdrawal Commission',
+        });
+      }
+
+      // Notification
+      await this.rabbitMQService.publish('wallet.notification', {
+        userId: wallet.userId,
+        event: 'WITHDRAW',
+        amount,
+        commission,
+        totalDebit,
+        balance: wallet.balance,
+      });
 
       await session.commitTransaction();
 
       return {
         message: 'Money withdrawn successfully',
+        withdrawAmount: amount,
+        commission,
+        totalDebited: totalDebit,
         balance: wallet.balance,
       };
     } catch (error) {
@@ -193,9 +264,15 @@ export class WalletService {
   }
 
   async transferMoney(senderUserId: string, dto: TransferMoneyDto) {
+    console.log('===== TRANSFER START =====');
+    console.log('Sender:', senderUserId);
+    console.log(dto);
     const receiver = await firstValueFrom(
       this.authClient.send({ cmd: 'find_user_by_email' }, dto.receiverEmail),
     );
+
+    console.log('Receiver Found');
+    console.log(receiver);
 
     if (!receiver) {
       throw new NotFoundException('Receiver not found');
@@ -207,6 +284,7 @@ export class WalletService {
 
     const session = await this.connection.startSession();
     session.startTransaction();
+
     const transferGroupId = randomUUID();
 
     try {
@@ -238,7 +316,20 @@ export class WalletService {
         throw new BadRequestException('Receiver wallet is frozen');
       }
 
-      const { commission, totalDebit } = calculateCommission(dto.amount);
+      console.log('Calling Commission Service...');
+
+      const commissionData = await firstValueFrom(
+        this.commissionClient.send(
+          { cmd: 'calculate_commission' },
+          {
+            serviceType: 'TRANSFER',
+            amount: dto.amount,
+          },
+        ),
+      );
+
+      const commission = commissionData.commission;
+      const totalDebit = commissionData.totalDebit;
 
       if (senderWallet.balance < totalDebit) {
         throw new BadRequestException('Insufficient balance');
@@ -250,52 +341,40 @@ export class WalletService {
       await senderWallet.save({ session });
       await receiverWallet.save({ session });
 
-      await firstValueFrom(
-        this.transactionClient.send(
-          { cmd: 'create_transaction' },
-          {
-            userId: senderWallet.userId,
-            walletId: senderWallet._id,
-            amount: commission,
-            type: 'DEBIT',
-            status: 'SUCCESS',
-            description: 'Transfer Commission',
-            transferGroupId,
-          },
-        ),
-      );
+      // Commission Transaction
+      await this.rabbitMQService.publish('transaction.created', {
+        userId: senderWallet.userId,
+        walletId: senderWallet._id,
+        amount: commission,
+        type: 'DEBIT',
+        status: 'SUCCESS',
+        description: 'Transfer Commission',
+        transferGroupId,
+      });
 
-      await firstValueFrom(
-        this.transactionClient.send(
-          { cmd: 'create_transaction' },
-          {
-            userId: senderWallet.userId,
-            receiverUserId: receiver._id,
-            walletId: senderWallet._id,
-            amount: dto.amount,
-            type: 'DEBIT',
-            status: 'SUCCESS',
-            description: `Transferred to ${receiver.email}`,
-            transferGroupId,
-          },
-        ),
-      );
+      // Sender Transaction
+      await this.rabbitMQService.publish('transaction.created', {
+        userId: senderWallet.userId,
+        receiverUserId: receiver._id,
+        walletId: senderWallet._id,
+        amount: dto.amount,
+        type: 'DEBIT',
+        status: 'SUCCESS',
+        description: `Transferred to ${receiver.email}`,
+        transferGroupId,
+      });
 
-      await firstValueFrom(
-        this.transactionClient.send(
-          { cmd: 'create_transaction' },
-          {
-            userId: receiverWallet.userId,
-            receiverUserId: senderWallet.userId,
-            walletId: receiverWallet._id,
-            amount: dto.amount,
-            type: 'CREDIT',
-            status: 'SUCCESS',
-            description: `Received from ${senderUserId}`,
-            transferGroupId,
-          },
-        ),
-      );
+      // Receiver Transaction
+      await this.rabbitMQService.publish('transaction.created', {
+        userId: receiverWallet.userId,
+        receiverUserId: senderWallet.userId,
+        walletId: receiverWallet._id,
+        amount: dto.amount,
+        type: 'CREDIT',
+        status: 'SUCCESS',
+        description: `Received from ${senderUserId}`,
+        transferGroupId,
+      });
 
       await session.commitTransaction();
 
@@ -306,7 +385,12 @@ export class WalletService {
         totalDebited: totalDebit,
       };
     } catch (error) {
+      console.log('=======================');
+      console.log(error);
+      console.log('=======================');
+
       await session.abortTransaction();
+
       throw error;
     } finally {
       session.endSession();
@@ -411,55 +495,46 @@ export class WalletService {
 
       await receiverWallet.save({ session });
 
-      const rollbackDebit = await firstValueFrom(
-        this.transactionClient.send(
-          { cmd: 'create_transaction' },
-          {
-            userId: senderWallet.userId,
-            walletId: senderWallet._id,
-            amount: debitTransaction.amount,
-            type: 'CREDIT',
-            status: 'SUCCESS',
-            description: 'Rollback of transfer',
-            isRollback: true,
-            referenceTransactionId: debitTransaction._id,
-            transferGroupId: debitTransaction.transferGroupId,
-          },
-        ),
+      const rollbackDebit = await this.rabbitMQService.publish(
+        'transaction.created',
+        {
+          userId: senderWallet.userId,
+          walletId: senderWallet._id,
+          amount: debitTransaction.amount,
+          type: 'CREDIT',
+          status: 'SUCCESS',
+          description: 'Rollback of transfer',
+          isRollback: true,
+          referenceTransactionId: debitTransaction._id,
+          transferGroupId: debitTransaction.transferGroupId,
+        },
       );
 
-      const rollbackCredit = await firstValueFrom(
-        this.transactionClient.send(
-          { cmd: 'create_transaction' },
-          {
-            userId: receiverWallet.userId,
-            walletId: receiverWallet._id,
-            amount: creditTransaction.amount,
-            type: 'DEBIT',
-            status: 'SUCCESS',
-            description: 'Rollback of transfer',
-            isRollback: true,
-            referenceTransactionId: creditTransaction._id,
-            transferGroupId: creditTransaction.transferGroupId,
-          },
-        ),
+      const rollbackCredit = await this.rabbitMQService.publish(
+        'transaction.created',
+        {
+          userId: receiverWallet.userId,
+          walletId: receiverWallet._id,
+          amount: creditTransaction.amount,
+          type: 'DEBIT',
+          status: 'SUCCESS',
+          description: 'Rollback of transfer',
+          isRollback: true,
+          referenceTransactionId: creditTransaction._id,
+          transferGroupId: creditTransaction.transferGroupId,
+        },
       );
 
-      await firstValueFrom(
-        this.transactionClient.send(
-          { cmd: 'mark_transaction_rollback' },
-          transaction.transferGroupId,
-        ),
+      await this.rabbitMQService.publish(
+        'transaction.rollback',
+        transaction.transferGroupId,
       );
 
       await session.commitTransaction();
 
       return {
         message: 'Transaction rolled back successfully',
-        rollbackTransactions: [
-          rollbackDebit.referenceId,
-          rollbackCredit.referenceId,
-        ],
+        transferGroupId: transaction.transferGroupId,
       };
     } catch (error) {
       await session.abortTransaction();
@@ -499,9 +574,7 @@ export class WalletService {
 
     try {
       const wallet = await this.walletModel
-        .findOne({
-          userId,
-        })
+        .findOne({ userId })
         .session(session);
 
       if (!wallet) {
@@ -514,6 +587,7 @@ export class WalletService {
         throw new BadRequestException('Amount must be greater than zero');
       }
 
+      // Simulate Bank Response
       const bankResponse = 'SUCCESS';
 
       if (bankResponse !== 'SUCCESS') {
@@ -522,43 +596,27 @@ export class WalletService {
 
       wallet.balance += dto.amount;
 
-      await wallet.save({
-        session,
+      await wallet.save({ session });
+
+      await this.rabbitMQService.publish('transaction.created', {
+        userId: wallet.userId,
+        walletId: wallet._id,
+        amount: dto.amount,
+        type: 'CREDIT',
+        status: 'SUCCESS',
+        description: `AEPS Cash Withdrawal - ${dto.bankName}`,
       });
-
-      const transaction = await firstValueFrom(
-        this.transactionClient.send(
-          {
-            cmd: 'create_transaction',
-          },
-
-          {
-            userId: wallet.userId,
-            walletId: wallet._id,
-            amount: dto.amount,
-            type: 'CREDIT',
-            status: 'SUCCESS',
-            description: `AEPS Cash Withdrawal - ${dto.bankName}`,
-          },
-        ),
-      );
 
       await session.commitTransaction();
 
       return {
         message: 'AEPS withdrawal successful',
-
-        referenceId: transaction.referenceId,
-
         amount: dto.amount,
-
         bankName: dto.bankName,
-
         walletBalance: wallet.balance,
       };
     } catch (error) {
       await session.abortTransaction();
-
       throw error;
     } finally {
       session.endSession();
