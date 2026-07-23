@@ -1,90 +1,125 @@
 import { Injectable } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
-
-import { User, UserDocument } from './user.schema';
+import { PrismaService } from '../prisma/prisma.service';
+import { Prisma } from '../generated/prisma';
 
 @Injectable()
 export class UsersService {
-  constructor(
-    @InjectModel(User.name)
-    private readonly userModel: Model<UserDocument>,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
-  async createUser(
-    userData: Partial<User>,
-    session?: any,
-  ): Promise<UserDocument> {
-    const users = await this.userModel.create([userData], { session });
+  async createUser(userData: Prisma.UserCreateInput) {
+    const users = await this.prisma.user.create({ data: userData });
 
-    return users[0];
+    return users;
   }
 
-  async findByEmail(email: string): Promise<UserDocument | null> {
-    return this.userModel.findOne({
-      email,
+  async findByEmail(email: string) {
+    return this.prisma.user.findUnique({
+      where: {
+        email,
+      },
     });
   }
 
-  async findByEmailWithPassword(email: string): Promise<UserDocument | null> {
-    return this.userModel
-      .findOne({ email })
-      .select('+password +isActive +role');
+  async findByEmailWithPassword(email: string) {
+    return this.prisma.user.findUnique({
+      where: {
+        email,
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        password: true,
+        profileImage: true,
+        isActive: true,
+        role: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+    // .select('+password +isActive +role');
   }
 
   async findById(userId: string) {
-    return this.userModel.findById(userId);
+    return this.prisma.user.findUnique({ where: { id: userId } });
   }
 
   async findByIdWithPassword(userId: string) {
-    return this.userModel.findById(userId).select('+password +isActive');
+    return this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        password: true,
+        profileImage: true,
+        isActive: true,
+        role: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+    // .select('+password +isActive');
   }
 
   async getAllUsers() {
-    return this.userModel.find().select('-password');
+    return this.prisma.user.findMany({
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        profileImage: true,
+        isActive: true,
+        role: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
   }
 
   async getUserById(id: string) {
-    return this.userModel.findById(id).select('-password');
+    return this.prisma.user.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        profileImage: true,
+        isActive: true,
+        role: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+    // .select('-password');
   }
 
   async blockUser(id: string) {
-    return this.userModel.findByIdAndUpdate(
-      id,
-      {
-        isActive: false,
-      },
-      {
-        new: true,
-      },
-    );
+    return this.prisma.user.update({
+      where: { id },
+      data: { isActive: false },
+    });
   }
 
   async updatePassword(userId: string, password: string) {
-    return this.userModel.findByIdAndUpdate(
-      userId,
-      {
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: {
         password,
       },
-      {
-        new: true,
-      },
-    );
+    });
   }
 
   async unblockUser(id: string) {
-    return this.userModel.findByIdAndUpdate(
-      id,
-      {
+    return this.prisma.user.update({
+      where: { id },
+      data: {
         isActive: true,
       },
-      {
-        new: true,
-      },
-    );
+    });
   }
 
   async deleteUser(id: string) {
-    return this.userModel.findByIdAndDelete(id);
+    return this.prisma.user.delete({ where: { id } });
   }
 }

@@ -5,11 +5,7 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
-
 import { RegisterDto } from './dto/register.dto';
-
-import { Connection } from 'mongoose';
-import { InjectConnection } from '@nestjs/mongoose';
 import { JwtService } from '@nestjs/jwt';
 import { LoginDto } from './dto/login.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
@@ -28,9 +24,6 @@ export class AuthService {
     private readonly usersService: UsersService,
     private readonly jwtService: JwtService,
 
-    @InjectConnection()
-    private readonly connection: Connection,
-
     @Inject('WALLET_SERVICE')
     private readonly walletClient: ClientProxy,
 
@@ -38,43 +31,31 @@ export class AuthService {
   ) {}
 
   async register(registerDto: RegisterDto) {
-    const session = await this.connection.startSession();
+    const existingUser = await this.usersService.findByEmail(registerDto.email);
 
-    session.startTransaction();
+    if (existingUser) {
+      throw new ConflictException('Email alredy exists');
+    }
 
+    const hashedPassword = await hashPassword(registerDto.password);
+
+    const user = await this.usersService.createUser({
+      name: registerDto.name,
+      email: registerDto.email,
+      password: hashedPassword,
+      role: registerDto.role ?? 'USER',
+    });
     try {
-      const existingUser = await this.usersService.findByEmail(
-        registerDto.email,
-      );
-
-      if (existingUser) {
-        throw new ConflictException('Email alredy exists');
-      }
-
-      const hashedPassword = await hashPassword(registerDto.password);
-
-      const user = await this.usersService.createUser(
-        {
-          name: registerDto.name,
-          email: registerDto.email,
-          password: hashedPassword,
-          role: registerDto.role ?? 'USER',
-        },
-        session,
-      );
-
       const wallet = await firstValueFrom(
         this.walletClient.send(
           { cmd: 'create_wallet' },
           {
-            userId: user._id.toString(),
+            userId: user.id,
           },
         ),
       );
 
-      await session.commitTransaction();
-
-      const { password, ...userResponse } = user.toObject();
+      const { password, ...userResponse } = user;
 
       return {
         message: 'User registered successfully',
@@ -84,16 +65,17 @@ export class AuthService {
         },
       };
     } catch (error) {
-      await session.abortTransaction();
-      throw error;
-    } finally {
-      session.endSession();
+      console.error(error);
+      throw new RpcException({
+        status: error,
+        message: 'User created, but wallet creation failed',
+        error,
+      });
     }
   }
 
   async login(loginDto: LoginDto) {
     console.log('JWT_SECRET:', process.env.JWT_SECRET);
-    console.log('MONGO_URI:', process.env.MONGO_URI);
     const user = await this.usersService.findByEmailWithPassword(
       loginDto.email,
     );
@@ -111,7 +93,7 @@ export class AuthService {
     }
 
     const payload = {
-      sub: user._id.toString(),
+      sub: user.id,
       email: user.email,
       role: user.role,
     };
@@ -223,7 +205,7 @@ export class AuthService {
     }
 
     await this.rabbitMQService.publish('USER_BLOCKED', {
-      userId: user._id,
+      userId: user.id,
       email: user.email,
       name: user.name,
     });
@@ -255,7 +237,7 @@ export class AuthService {
     }
 
     await this.rabbitMQService.publish('USER_DELETED', {
-      userId: user._id,
+      userId: user.id,
       email: user.email,
       name: user.name,
     });
