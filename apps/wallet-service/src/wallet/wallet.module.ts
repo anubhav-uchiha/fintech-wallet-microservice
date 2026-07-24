@@ -1,22 +1,12 @@
 import { Module } from '@nestjs/common';
-import { MongooseModule } from '@nestjs/mongoose';
 import { ClientsModule, Transport } from '@nestjs/microservices';
-
 import { WalletController } from './wallet.controller';
 import { WalletService } from './wallet.service';
-import { Wallet, WalletSchema } from './wallet.schema';
-
 import { RabbitMQModule } from 'apps/fintech-wallet-microservices/src/common/rabbitmq/rabbitmq.module';
+import { PrismaModule } from '../prisma/prisma.module';
 
 @Module({
   imports: [
-    MongooseModule.forFeature([
-      {
-        name: Wallet.name,
-        schema: WalletSchema,
-      },
-    ]),
-
     ClientsModule.register([
       {
         name: 'AUTH_SERVICE',
@@ -43,7 +33,7 @@ import { RabbitMQModule } from 'apps/fintech-wallet-microservices/src/common/rab
         },
       },
     ]),
-
+    PrismaModule,
     RabbitMQModule,
   ],
 

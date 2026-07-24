@@ -3,21 +3,11 @@ import { Transport } from '@nestjs/microservices';
 import { NotificationModule } from './notification-service.module';
 
 async function bootstrap() {
-  const app = await NestFactory.createMicroservice(NotificationModule, {
-    transport: Transport.RMQ,
+  const app = await NestFactory.create(NotificationModule);
 
-    options: {
-      urls: ['amqp://localhost:5672'],
+  await app.listen(3006);
 
-      queue: 'transaction_queue',
-
-      queueOptions: {
-        durable: true,
-      },
-    },
-  });
-
-  await app.listen();
+  console.log('Nortification Service Running');
 }
 
 bootstrap();

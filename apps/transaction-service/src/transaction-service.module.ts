@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 
 import { DatabaseModule } from './config/database.config';
 import { TransactionModule } from './transaction/transaction.module';
+import { RabbitMQConsumer } from './rabbitMQ.consumer';
 
 @Module({
   imports: [
@@ -15,5 +16,6 @@ import { TransactionModule } from './transaction/transaction.module';
 
     TransactionModule,
   ],
+  providers: [RabbitMQConsumer],
 })
 export class TransactionServiceModule {}

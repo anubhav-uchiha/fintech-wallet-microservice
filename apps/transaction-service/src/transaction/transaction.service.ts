@@ -184,7 +184,9 @@ export class TransactionService {
   }
 
   async markRollback(transferGroupId: string) {
-    await this.transactionModel.updateMany(
+    console.log('Rollback Group:', transferGroupId);
+
+    const result = await this.transactionModel.updateMany(
       {
         transferGroupId,
         isRollback: false,
@@ -196,8 +198,8 @@ export class TransactionService {
       },
     );
 
-    return {
-      message: 'Transactions marked as rolled back',
-    };
+    console.log(result);
+
+    return result;
   }
 }
