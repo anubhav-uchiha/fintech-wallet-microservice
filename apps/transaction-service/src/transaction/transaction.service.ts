@@ -3,25 +3,39 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
-import { Transaction, TransactionDocument } from './transaction.schema';
 import { generateTransactionReference } from 'apps/fintech-wallet-microservices/src/common/utils/generate-reference';
+import { PrismaService } from '../prisma/prisma.service';
+import { Prisma, TransactionStatus } from '../generated/prisma';
+import { RpcException } from '@nestjs/microservices';
 
 @Injectable()
 export class TransactionService {
-  constructor(
-    @InjectModel(Transaction.name)
-    private readonly transactionModel: Model<TransactionDocument>,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
-  async createTransaction(data: Partial<Transaction>) {
+  async createTransaction(data: any) {
+    console.log('Step 1');
     const referenceId = generateTransactionReference();
+    console.log(referenceId);
+    console.log(data);
 
-    const transaction = await this.transactionModel.create({
-      referenceId,
-      ...data,
+    console.log('STEP 2');
+    const transaction = await this.prisma.transaction.create({
+      data: {
+        referenceId: referenceId,
+        userId: data.userId,
+        walletId: data.walletId,
+        amount: new Prisma.Decimal(data.amount),
+        type: data.type,
+        status: data.status,
+        description: data.description,
+        receiverUserId: data.receiverUserId ?? undefined,
+        isRollback: data.isRollback ?? false,
+        isReversed: data.isReversed ?? false,
+        referenceTransactionId: data.referenceTransactionId ?? null,
+        transferGroupId: data.transferGroupId ?? undefined,
+      },
     });
+    console.log('Step 3');
 
     return transaction;
   }
@@ -32,61 +46,76 @@ export class TransactionService {
 
     const skip = (page - 1) * limit;
 
-    const filter: any = {
+    const where: any = {
       userId,
     };
 
     if (query.type) {
-      filter.type = query.type;
+      where.type = query.type;
     }
 
     if (query.status) {
-      filter.status = query.status;
+      where.status = query.status;
     }
 
-    const data = await this.transactionModel
-      .find(filter)
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit);
-
-    const total = await this.transactionModel.countDocuments(filter);
+    const [transactions, total] = await this.prisma.$transaction([
+      this.prisma.transaction.findMany({
+        where,
+        orderBy: {
+          createdAt: 'desc',
+        },
+        skip: skip,
+      }),
+      this.prisma.transaction.count({ where }),
+    ]);
 
     return {
       page,
       limit,
       total,
       totalPages: Math.ceil(total / limit),
-      data,
+      data: transactions,
     };
   }
 
   async getTransactionById(transactionId: string, userId: string) {
-    const transaction = await this.transactionModel.findById(transactionId);
+    const transaction = await this.prisma.transaction.findUnique({
+      where: { id: transactionId },
+    });
 
     if (!transaction) {
-      throw new NotFoundException('Transaction not found');
+      throw new RpcException({
+        statusCode: 404,
+        message: 'Transaction not found',
+      });
     }
 
     if (transaction.userId.toString() !== userId) {
-      throw new ForbiddenException('You cannot access this transaction');
+      throw new RpcException({
+        statuCode: 403,
+        message: 'You cannot access this transaction',
+      });
     }
 
     return transaction;
   }
 
   async getTransactionByReference(userId: string, referenceId: string) {
-    const transaction = await this.transactionModel.findOne({
-      userId,
-      referenceId,
+    const transaction = await this.prisma.transaction.findFirst({
+      where: {
+        userId,
+        referenceId,
+      },
     });
 
     return transaction;
   }
 
   async getTransactionSummary(userId: string) {
-    const transactions = await this.transactionModel.find({
-      userId,
+    const transactions = await this.prisma.transaction.findMany({
+      where: {
+        userId,
+      },
     });
 
     let totalCredit = 0;
@@ -98,11 +127,11 @@ export class TransactionService {
 
     for (const transaction of transactions) {
       if (transaction.type === 'CREDIT') {
-        totalCredit += transaction.amount;
+        totalCredit += Number(transaction.amount);
       }
 
       if (transaction.type === 'DEBIT') {
-        totalDebit += transaction.amount;
+        totalDebit += Number(transaction.amount);
       }
 
       if (transaction.status === 'SUCCESS') {
@@ -129,29 +158,37 @@ export class TransactionService {
   }
 
   async findByReferenceId(referenceId: string) {
-    return this.transactionModel.findOne({
-      referenceId,
+    return this.prisma.transaction.findUnique({
+      where: {
+        referenceId,
+      },
     });
   }
 
   async findTransactionByReference(referenceId: string) {
-    const transaction = await this.transactionModel.findOne({
-      referenceId,
+    const transaction = await this.prisma.transaction.findUnique({
+      where: {
+        referenceId,
+      },
     });
 
     return transaction;
   }
 
   async findTransferTransactions(transferGroupId: string) {
-    return this.transactionModel.find({
-      transferGroupId,
+    return this.prisma.transaction.findMany({
+      where: {
+        transferGroupId,
+      },
     });
   }
 
   async getStatus(userId: string, referenceId: string) {
-    const transaction = await this.transactionModel.findOne({
-      userId,
-      referenceId,
+    const transaction = await this.prisma.transaction.findFirst({
+      where: {
+        userId,
+        referenceId,
+      },
     });
 
     if (!transaction) {
@@ -167,18 +204,22 @@ export class TransactionService {
     };
   }
 
-  async updateTransactionStatus(referenceId: string, status: string) {
-    const transaction = await this.transactionModel.findOne({
-      referenceId,
+  async updateTransactionStatus(
+    referenceId: string,
+    status: TransactionStatus,
+  ) {
+    const transaction = await this.prisma.transaction.update({
+      where: {
+        referenceId,
+      },
+      data: {
+        status,
+      },
     });
 
     if (!transaction) {
       throw new NotFoundException('Transaction not found');
     }
-
-    transaction.status = status;
-
-    await transaction.save();
 
     return transaction;
   }
@@ -186,17 +227,16 @@ export class TransactionService {
   async markRollback(transferGroupId: string) {
     console.log('Rollback Group:', transferGroupId);
 
-    const result = await this.transactionModel.updateMany(
-      {
+    const result = await this.prisma.transaction.updateMany({
+      where: {
         transferGroupId,
         isRollback: false,
       },
-      {
-        $set: {
-          isReversed: true,
-        },
+
+      data: {
+        isReversed: true,
       },
-    );
+    });
 
     console.log(result);
 

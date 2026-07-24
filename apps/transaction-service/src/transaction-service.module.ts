@@ -1,19 +1,17 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-
-import { DatabaseModule } from './config/database.config';
 import { TransactionModule } from './transaction/transaction.module';
 import { RabbitMQConsumer } from './rabbitMQ.consumer';
+import { PrismaModule } from './prisma/prisma.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: '.env',
+      envFilePath: 'apps/transaction-service/.env',
     }),
 
-    DatabaseModule,
-
+    PrismaModule,
     TransactionModule,
   ],
   providers: [RabbitMQConsumer],

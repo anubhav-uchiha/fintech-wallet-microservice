@@ -1,0 +1,61 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  schemas  = ["transaction"]
+}
+
+enum Type {
+  CREDIT
+  DEBIT
+
+  @@schema("transaction")
+}
+
+enum TransactionStatus {
+  SUCCESS
+  FAILED
+  PENDING
+
+  @@schema("transaction")
+}
+
+model Transaction {
+  id String @id @default(uuid())
+
+  referenceId String @unique
+
+  userId String
+
+  walletId String
+
+  amount Decimal @db.Decimal(18, 2)
+
+  type Type
+
+  status TransactionStatus @default(SUCCESS)
+
+  description String
+
+  receiverUserId String?
+
+  isRollback Boolean @default(false)
+
+  isReversed Boolean @default(false)
+
+  referenceTransactionId String?
+
+  transferGroupId String?
+
+  createdAt DateTime @default(now())
+
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@map("transactions")
+  @@schema("transaction")
+}

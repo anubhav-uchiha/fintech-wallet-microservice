@@ -7,6 +7,7 @@ export class RabbitMQConsumer implements OnModuleInit {
   constructor(private readonly transactionService: TransactionService) {}
 
   async onModuleInit() {
+    console.log('RabbitMQ Consumer Started');
     const connection = await connect('amqp://guest:guest@localhost:5672');
 
     const channel: Channel = await connection.createChannel();
@@ -37,6 +38,7 @@ export class RabbitMQConsumer implements OnModuleInit {
         const event = msg.fields.routingKey;
         const data = JSON.parse(msg.content.toString());
 
+        console.log('Wating for message....');
         console.log('============== MESSAGE RECEIVED ===========');
         console.log('EVENT', event);
         console.log(data);
@@ -57,7 +59,10 @@ export class RabbitMQConsumer implements OnModuleInit {
 
           channel.ack(msg);
         } catch (error) {
+          console.log('=======Error======');
           console.error(error);
+          console.log('======================');
+
           channel.nack(msg, false, false);
         }
       },
