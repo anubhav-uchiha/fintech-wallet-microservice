@@ -17,9 +17,11 @@ enum Type {
 }
 
 enum TransactionStatus {
+  INITIATED
+  PROCESSING
   SUCCESS
-  FAILED
-  PENDING
+  ROLLBACK_PENDING
+  ROLLED_BACK
 
   @@schema("transaction")
 }
@@ -27,7 +29,9 @@ enum TransactionStatus {
 model Transaction {
   id String @id @default(uuid())
 
-  referenceId String @unique
+  referenceId String? @unique
+
+  idempotencyKey String? @unique
 
   userId String
 
@@ -35,9 +39,11 @@ model Transaction {
 
   amount Decimal @db.Decimal(18, 2)
 
+  rollbackAmount Decimal? @db.Decimal(18,2)
+
   type Type
 
-  status TransactionStatus @default(SUCCESS)
+  status TransactionStatus @default(INITIATED)
 
   description String
 

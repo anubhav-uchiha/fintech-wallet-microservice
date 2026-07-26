@@ -1,18 +1,17 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-
-import { DatabaseModule } from './config/database.config';
 import { CommissionModule } from './commission/commission.module';
 import { RedisModule } from './redis/redis.module';
+import { PrismaModule } from './prisma/prisma.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: '.env',
+      envFilePath: 'apps/commission-service/.env',
     }),
 
-    DatabaseModule,
+    PrismaModule,
     RedisModule,
     CommissionModule,
   ],

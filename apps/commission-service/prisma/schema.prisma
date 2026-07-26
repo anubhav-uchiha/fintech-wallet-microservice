@@ -1,0 +1,51 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  schemas  = ["commission"]
+}
+
+enum ServiceType {
+  ADD_MONEY
+  WITHDRAW
+  TRANSFER
+  AEPS_WITHDRAW
+  AEPS_BALANCE
+  DMT
+
+  @@schema("commission")
+}
+
+enum CommissionType {
+  FIXED
+  PERCENTAGE
+
+  @@schema("commission")
+}
+
+model Commission {
+  id String @id @default(uuid())
+
+  serviceType ServiceType @unique
+
+  commissionType CommissionType
+
+  value Decimal @db.Decimal(18, 2)
+
+  minimum Decimal @default(0) @db.Decimal(18, 2)
+
+  maximum Decimal @default(999999) @db.Decimal(18, 2)
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+
+  updatedAt DateTime @updatedAt
+
+  @@map("commissions")
+  @@schema("commission")
+}

@@ -124,9 +124,11 @@ exports.Prisma.TransactionIsolationLevel = makeStrictEnum({
 exports.Prisma.TransactionScalarFieldEnum = {
   id: 'id',
   referenceId: 'referenceId',
+  idempotencyKey: 'idempotencyKey',
   userId: 'userId',
   walletId: 'walletId',
   amount: 'amount',
+  rollbackAmount: 'rollbackAmount',
   type: 'type',
   status: 'status',
   description: 'description',
@@ -159,9 +161,11 @@ exports.Type = exports.$Enums.Type = {
 };
 
 exports.TransactionStatus = exports.$Enums.TransactionStatus = {
+  INITIATED: 'INITIATED',
+  PROCESSING: 'PROCESSING',
   SUCCESS: 'SUCCESS',
-  FAILED: 'FAILED',
-  PENDING: 'PENDING'
+  ROLLBACK_PENDING: 'ROLLBACK_PENDING',
+  ROLLED_BACK: 'ROLLED_BACK'
 };
 
 exports.Prisma.ModelName = {

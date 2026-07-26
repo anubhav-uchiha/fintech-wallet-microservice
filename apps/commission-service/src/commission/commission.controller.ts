@@ -10,7 +10,6 @@ import { CalculateCommissionDto } from './dto/calculate-commission.dto';
 export class CommissionController {
   constructor(private readonly commissionService: CommissionService) {}
 
-  // Create Commission
   @MessagePattern({ cmd: 'create_commission' })
   create(@Payload() dto: any) {
     console.log('CONTROLLER HIT');
@@ -19,19 +18,16 @@ export class CommissionController {
     return this.commissionService.create(dto);
   }
 
-  // Get All Commission Rules
   @MessagePattern({ cmd: 'get_all_commission' })
   getAll() {
     return this.commissionService.getAll();
   }
 
-  // Get One Commission Rule
   @MessagePattern({ cmd: 'get_commission_by_id' })
   getById(@Payload() id: string) {
     return this.commissionService.getById(id);
   }
 
-  // Update Commission Rule
   @MessagePattern({ cmd: 'update_commission' })
   update(
     @Payload()
@@ -43,7 +39,6 @@ export class CommissionController {
     return this.commissionService.update(data.id, data.dto);
   }
 
-  // Delete Commission Rule
   @MessagePattern({ cmd: 'delete_commission' })
   remove(@Payload() id: string) {
     return this.commissionService.remove(id);

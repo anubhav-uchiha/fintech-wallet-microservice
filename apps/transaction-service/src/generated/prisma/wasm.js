@@ -96,9 +96,11 @@ exports.Prisma.TransactionIsolationLevel = makeStrictEnum({
 exports.Prisma.TransactionScalarFieldEnum = {
   id: 'id',
   referenceId: 'referenceId',
+  idempotencyKey: 'idempotencyKey',
   userId: 'userId',
   walletId: 'walletId',
   amount: 'amount',
+  rollbackAmount: 'rollbackAmount',
   type: 'type',
   status: 'status',
   description: 'description',
@@ -131,9 +133,11 @@ exports.Type = exports.$Enums.Type = {
 };
 
 exports.TransactionStatus = exports.$Enums.TransactionStatus = {
+  INITIATED: 'INITIATED',
+  PROCESSING: 'PROCESSING',
   SUCCESS: 'SUCCESS',
-  FAILED: 'FAILED',
-  PENDING: 'PENDING'
+  ROLLBACK_PENDING: 'ROLLBACK_PENDING',
+  ROLLED_BACK: 'ROLLED_BACK'
 };
 
 exports.Prisma.ModelName = {
@@ -178,6 +182,7 @@ const config = {
     "db"
   ],
   "activeProvider": "postgresql",
+  "postinstall": false,
   "inlineDatasources": {
     "db": {
       "url": {
@@ -186,13 +191,13 @@ const config = {
       }
     }
   },
-  "inlineSchema": "generator client {\n  provider = \"prisma-client-js\"\n  output   = \"../src/generated/prisma\"\n}\n\ndatasource db {\n  provider = \"postgresql\"\n  url      = env(\"DATABASE_URL\")\n  schemas  = [\"transaction\"]\n}\n\nenum Type {\n  CREDIT\n  DEBIT\n\n  @@schema(\"transaction\")\n}\n\nenum TransactionStatus {\n  SUCCESS\n  FAILED\n  PENDING\n\n  @@schema(\"transaction\")\n}\n\nmodel Transaction {\n  id String @id @default(uuid())\n\n  referenceId String @unique\n\n  userId String\n\n  walletId String\n\n  amount Decimal @db.Decimal(18, 2)\n\n  type Type\n\n  status TransactionStatus @default(SUCCESS)\n\n  description String\n\n  receiverUserId String?\n\n  isRollback Boolean @default(false)\n\n  isReversed Boolean @default(false)\n\n  referenceTransactionId String?\n\n  transferGroupId String?\n\n  createdAt DateTime @default(now())\n\n  updatedAt DateTime @updatedAt\n\n  @@index([status])\n  @@map(\"transactions\")\n  @@schema(\"transaction\")\n}\n",
-  "inlineSchemaHash": "eb2fa5ff9bc874e1c7a310bdb426eebe58eecd989b18d3003f05ff1721b07cab",
+  "inlineSchema": "generator client {\n  provider = \"prisma-client-js\"\n  output   = \"../src/generated/prisma\"\n}\n\ndatasource db {\n  provider = \"postgresql\"\n  url      = env(\"DATABASE_URL\")\n  schemas  = [\"transaction\"]\n}\n\nenum Type {\n  CREDIT\n  DEBIT\n\n  @@schema(\"transaction\")\n}\n\nenum TransactionStatus {\n  INITIATED\n  PROCESSING\n  SUCCESS\n  ROLLBACK_PENDING\n  ROLLED_BACK\n\n  @@schema(\"transaction\")\n}\n\nmodel Transaction {\n  id String @id @default(uuid())\n\n  referenceId String @unique\n\n  idempotencyKey String? @unique\n\n  userId String\n\n  walletId String\n\n  amount Decimal @db.Decimal(18, 2)\n\n  rollbackAmount Decimal? @db.Decimal(18, 2)\n\n  type Type\n\n  status TransactionStatus @default(INITIATED)\n\n  description String\n\n  receiverUserId String?\n\n  isRollback Boolean @default(false)\n\n  isReversed Boolean @default(false)\n\n  referenceTransactionId String?\n\n  transferGroupId String?\n\n  createdAt DateTime @default(now())\n\n  updatedAt DateTime @updatedAt\n\n  @@index([status])\n  @@map(\"transactions\")\n  @@schema(\"transaction\")\n}\n",
+  "inlineSchemaHash": "1c487bc4aeac3ccddab059e59ac0b9ee779705e6530a785ab4095df5d0e62c86",
   "copyEngine": true
 }
 config.dirname = '/'
 
-config.runtimeDataModel = JSON.parse("{\"models\":{\"Transaction\":{\"fields\":[{\"name\":\"id\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"referenceId\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"userId\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"walletId\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"amount\",\"kind\":\"scalar\",\"type\":\"Decimal\"},{\"name\":\"type\",\"kind\":\"enum\",\"type\":\"Type\"},{\"name\":\"status\",\"kind\":\"enum\",\"type\":\"TransactionStatus\"},{\"name\":\"description\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"receiverUserId\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"isRollback\",\"kind\":\"scalar\",\"type\":\"Boolean\"},{\"name\":\"isReversed\",\"kind\":\"scalar\",\"type\":\"Boolean\"},{\"name\":\"referenceTransactionId\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"transferGroupId\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"createdAt\",\"kind\":\"scalar\",\"type\":\"DateTime\"},{\"name\":\"updatedAt\",\"kind\":\"scalar\",\"type\":\"DateTime\"}],\"dbName\":\"transactions\"}},\"enums\":{},\"types\":{}}")
+config.runtimeDataModel = JSON.parse("{\"models\":{\"Transaction\":{\"fields\":[{\"name\":\"id\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"referenceId\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"idempotencyKey\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"userId\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"walletId\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"amount\",\"kind\":\"scalar\",\"type\":\"Decimal\"},{\"name\":\"rollbackAmount\",\"kind\":\"scalar\",\"type\":\"Decimal\"},{\"name\":\"type\",\"kind\":\"enum\",\"type\":\"Type\"},{\"name\":\"status\",\"kind\":\"enum\",\"type\":\"TransactionStatus\"},{\"name\":\"description\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"receiverUserId\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"isRollback\",\"kind\":\"scalar\",\"type\":\"Boolean\"},{\"name\":\"isReversed\",\"kind\":\"scalar\",\"type\":\"Boolean\"},{\"name\":\"referenceTransactionId\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"transferGroupId\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"createdAt\",\"kind\":\"scalar\",\"type\":\"DateTime\"},{\"name\":\"updatedAt\",\"kind\":\"scalar\",\"type\":\"DateTime\"}],\"dbName\":\"transactions\"}},\"enums\":{},\"types\":{}}")
 defineDmmfProperty(exports.Prisma, config.runtimeDataModel)
 config.engineWasm = {
   getRuntime: async () => require('./query_engine_bg.js'),

@@ -29,8 +29,19 @@ export class WalletController {
   }
 
   @MessagePattern({ cmd: 'add_money' })
-  addMoney(@Payload() data: { userId: string; amount: number }) {
-    return this.walletService.addMoney(data.userId, data.amount);
+  addMoney(
+    @Payload()
+    data: {
+      userId: string;
+      amount: number;
+      idempotencyKey?: string;
+    },
+  ) {
+    return this.walletService.addMoney(
+      data.userId,
+      data.amount,
+      data.idempotencyKey,
+    );
   }
 
   @MessagePattern({ cmd: 'withdraw_money' })

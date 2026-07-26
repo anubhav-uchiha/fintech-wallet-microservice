@@ -19,25 +19,92 @@ export class TransactionService {
     console.log(data);
 
     console.log('STEP 2');
-    const transaction = await this.prisma.transaction.create({
+    try {
+      const transaction = await this.prisma.transaction.create({
+        data: {
+          referenceId: referenceId,
+          idempotencyKey: data.idempotencyKey ?? null,
+          userId: data.userId,
+          walletId: data.walletId,
+          amount: new Prisma.Decimal(data.amount),
+          rollbackAmount:
+            data.rollbackAmount == null
+              ? null
+              : new Prisma.Decimal(data.rollbackAmount),
+          type: data.type,
+          status: TransactionStatus.INITIATED,
+          description: data.description,
+          receiverUserId: data.receiverUserId ?? null,
+          isRollback: data.isRollback ?? false,
+          isReversed: data.isReversed ?? false,
+          referenceTransactionId: data.referenceTransactionId ?? null,
+          transferGroupId: data.transferGroupId ?? null,
+        },
+      });
+      console.log('Step 3');
+
+      return transaction;
+    } catch (error: any) {
+      if (
+        error.code === 'P2002' &&
+        error.meta?.target?.includes('idempotencyKey')
+      ) {
+        return this.prisma.transaction.findUnique({
+          where: { idempotencyKey: data.idempotencyKey },
+        });
+      }
+      throw error;
+    }
+  }
+
+  async findByIdempotencyKey(idempotencyKey: string) {
+    return this.prisma.transaction.findUnique({ where: { idempotencyKey } });
+  }
+
+  async markProcessing(referenceId: string) {
+    return this.prisma.transaction.update({
+      where: { referenceId },
+      data: { status: TransactionStatus.PROCESSING },
+    });
+  }
+
+  async markSuccess(referenceId: string) {
+    return this.prisma.transaction.update({
+      where: {
+        referenceId,
+      },
       data: {
-        referenceId: referenceId,
-        userId: data.userId,
-        walletId: data.walletId,
-        amount: new Prisma.Decimal(data.amount),
-        type: data.type,
-        status: data.status,
-        description: data.description,
-        receiverUserId: data.receiverUserId ?? undefined,
-        isRollback: data.isRollback ?? false,
-        isReversed: data.isReversed ?? false,
-        referenceTransactionId: data.referenceTransactionId ?? null,
-        transferGroupId: data.transferGroupId ?? undefined,
+        status: TransactionStatus.SUCCESS,
       },
     });
-    console.log('Step 3');
+  }
 
-    return transaction;
+  async markRollbackPending(referenceId: string) {
+    return this.prisma.transaction.update({
+      where: { referenceId },
+      data: { status: TransactionStatus.ROLLBACK_PENDING },
+    });
+  }
+
+  async getRollbackPendingTransactions() {
+    return this.prisma.transaction.findMany({
+      where: {
+        status: 'ROLLBACK_PENDING',
+      },
+    });
+  }
+
+  async markRolledBack(referenceId: string) {
+    return this.prisma.transaction.update({
+      where: {
+        referenceId,
+      },
+      data: {
+        status: TransactionStatus.ROLLED_BACK,
+        isRollback: true,
+        isReversed: true,
+      },
+    });
   }
 
   async getUserTransactions(userId: string, query: any) {
@@ -138,11 +205,7 @@ export class TransactionService {
         success++;
       }
 
-      if (transaction.status === 'FAILED') {
-        failed++;
-      }
-
-      if (transaction.status === 'PENDING') {
+      if (transaction.status === 'PROCESSING') {
         pending++;
       }
     }
@@ -204,25 +267,25 @@ export class TransactionService {
     };
   }
 
-  async updateTransactionStatus(
-    referenceId: string,
-    status: TransactionStatus,
-  ) {
-    const transaction = await this.prisma.transaction.update({
-      where: {
-        referenceId,
-      },
-      data: {
-        status,
-      },
-    });
+  // async updateTransactionStatus(
+  //   referenceId: string,
+  //   status: TransactionStatus,
+  // ) {
+  //   const transaction = await this.prisma.transaction.update({
+  //     where: {
+  //       referenceId,
+  //     },
+  //     data: {
+  //       status,
+  //     },
+  //   });
 
-    if (!transaction) {
-      throw new NotFoundException('Transaction not found');
-    }
+  //   if (!transaction) {
+  //     throw new NotFoundException('Transaction not found');
+  //   }
 
-    return transaction;
-  }
+  //   return transaction;
+  // }
 
   async markRollback(transferGroupId: string) {
     console.log('Rollback Group:', transferGroupId);

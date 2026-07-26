@@ -50,10 +50,6 @@ export class AdminController {
     return this.adminService.deleteCommission(id);
   }
 
-  // ==========================
-  // USER MANAGEMENT
-  // ==========================
-
   @Get('users')
   getAllUsers() {
     return this.adminService.getAllUsers();

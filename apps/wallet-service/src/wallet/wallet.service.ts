@@ -13,6 +13,7 @@ import { ClientProxy, RpcException } from '@nestjs/microservices';
 import { firstValueFrom } from 'rxjs';
 import { RabbitMQService } from 'apps/fintech-wallet-microservices/src/common/rabbitmq/rabbitmq.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { Wallet } from '../generated/prisma';
 
 @Injectable()
 export class WalletService {
@@ -32,7 +33,10 @@ export class WalletService {
 
   private ensureWalletIsActive(wallet: { status: string }) {
     if (wallet.status !== 'ACTIVE') {
-      throw new BadRequestException(`Wallet is ${wallet.status.toLowerCase()}`);
+      throw new RpcException({
+        statusCode: 403,
+        message: 'Wallet is inactive',
+      });
     }
   }
 
@@ -69,72 +73,189 @@ export class WalletService {
     };
   }
 
-  async addMoney(userId: string, amount: number) {
+  async addMoney(userId: string, amount: number, idempotencyKey?: string) {
     if (amount <= 0) {
-      throw new BadRequestException('Amount must be greater than zero');
+      throw new RpcException({
+        statusCode: 400,
+        message: 'Amount must be greater than zero',
+      });
+    }
+
+    if (idempotencyKey) {
+      const existing = await firstValueFrom(
+        this.transactionClient.send(
+          { cmd: 'find_by_idempotency_key' },
+          idempotencyKey,
+        ),
+      );
+
+      if (existing) {
+        console.log('Duplicate request detected');
+
+        return {
+          message: 'Request already processed',
+          transaction: existing,
+        };
+      }
     }
 
     return this.prisma.$transaction(async (tx) => {
       const wallet = await tx.wallet.findUnique({ where: { userId } });
 
       if (!wallet) {
-        throw new NotFoundException('Wallet not found');
+        throw new RpcException({
+          statusCode: 404,
+          message: 'Wallet not found',
+        });
       }
 
       this.ensureWalletIsActive(wallet);
 
-      // Get commission from Commission Service
-      const commissionData = await firstValueFrom(
-        this.commissionClient.send(
-          { cmd: 'calculate_commission' },
-          {
-            serviceType: 'ADD_MONEY',
-            amount,
-          },
-        ),
-      );
-
-      const commission = Number(commissionData.commission);
-
-      const updatedWallet = await tx.wallet.update({
-        where: { userId },
-        data: {
-          balance: {
-            increment: amount - commission,
-          },
-        },
-      });
-
-      // Wallet Credit Transaction
-      await this.rabbitMQService.publish('transaction.created', {
-        userId: wallet.userId,
-        walletId: wallet.id,
-        amount,
-        type: 'CREDIT',
-        status: 'SUCCESS',
-        description: 'Wallet Topup',
-      });
-
-      // Commission Transaction
-      if (commission > 0) {
-        await this.rabbitMQService.publish('transaction.created', {
-          userId: wallet.userId,
-          walletId: wallet.id,
-          amount: commission,
-          type: 'DEBIT',
-          status: 'SUCCESS',
-          description: 'Add Money Commission',
+      let commissionData;
+      try {
+        commissionData = await firstValueFrom(
+          this.commissionClient.send(
+            { cmd: 'calculate_commission' },
+            {
+              serviceType: 'ADD_MONEY',
+              amount,
+            },
+          ),
+        );
+      } catch {
+        throw new RpcException({
+          statusCode: 503,
+          message: 'Commission service unavailable',
         });
       }
 
+      const commission = Number(commissionData.commission);
+
+      let walletTxn;
+      try {
+        walletTxn = await firstValueFrom(
+          this.transactionClient.send(
+            { cmd: 'create_transaction' },
+            {
+              userId: wallet.userId,
+              walletId: wallet.id,
+              amount,
+              rollbackAmount: amount - commission,
+              type: 'CREDIT',
+              status: 'INITIATED',
+              description: 'Wallet Topup',
+              idempotencyKey,
+            },
+          ),
+        );
+      } catch {
+        throw new RpcException({
+          statusCode: 503,
+          message: 'Transaction service unavailable',
+        });
+      }
+
+      let updatedWallet: Wallet;
+
+      try {
+        // const TEST_ROLLBACK = true;
+        await firstValueFrom(
+          this.transactionClient.send(
+            { cmd: 'transaction_processing' },
+            { referenceId: walletTxn.referenceId },
+          ),
+        );
+
+        // if (TEST_ROLLBACK) {
+        //   throw new Error('Testing rollback');
+        // }
+
+        updatedWallet = await tx.wallet.update({
+          where: { userId },
+          data: {
+            balance: {
+              increment: amount - commission,
+            },
+          },
+        });
+
+        await firstValueFrom(
+          this.transactionClient.send(
+            { cmd: 'transaction_success' },
+            { referenceId: walletTxn.referenceId },
+          ),
+        );
+      } catch (error) {
+        await firstValueFrom(
+          this.transactionClient.send(
+            { cmd: 'transaction_rollback_pending' },
+            { referenceId: walletTxn.referenceId },
+          ),
+        );
+
+        if (error instanceof RpcException) {
+          throw error;
+        }
+
+        throw new RpcException({
+          statusCode: 500,
+          message: 'Transaction failed. Rollback initiated.',
+        });
+      }
+
+      if (commission > 0) {
+        let commissionTxn;
+        try {
+          commissionTxn = await firstValueFrom(
+            this.transactionClient.send(
+              { cmd: 'create_transaction' },
+              {
+                userId: wallet.userId,
+                walletId: wallet.id,
+                amount: commission,
+                rollbackAmount: commission,
+                type: 'DEBIT',
+                status: 'INITIATED',
+                description: 'Add Money Commission',
+              },
+            ),
+          );
+
+          await firstValueFrom(
+            this.transactionClient.send(
+              { cmd: 'transaction_processing' },
+              { referenceId: commissionTxn.referenceId },
+            ),
+          );
+          await firstValueFrom(
+            this.transactionClient.send(
+              { cmd: 'transaction_success' },
+              { referenceId: commissionTxn.referenceId },
+            ),
+          );
+        } catch (error) {
+          await firstValueFrom(
+            this.transactionClient.send(
+              { cmd: 'transaction_rollback_pending' },
+              { referenceId: walletTxn.referenceId, status: 'FAILED' },
+            ),
+          );
+          throw error;
+        }
+      }
+
       // Notification
-      await this.rabbitMQService.publish('wallet.notification', {
-        userId: wallet.userId,
-        event: 'ADD_MONEY',
-        amount,
-        commission,
-        balance: updatedWallet.balance,
-      });
+      try {
+        await this.rabbitMQService.publish('wallet.notification', {
+          userId: wallet.userId,
+          event: 'ADD_MONEY',
+          amount,
+          commission,
+          balance: updatedWallet.balance,
+        });
+      } catch (error) {
+        console.log('Notification Failed', error);
+      }
 
       return {
         message: 'Money added successfully',
@@ -145,80 +266,194 @@ export class WalletService {
     });
   }
 
-  async withdraw(userId: string, amount: number) {
+  async withdraw(userId: string, amount: number, idempotencyKey?: string) {
     if (amount <= 0) {
-      throw new BadRequestException('Amount must be greater than zero');
+      throw new RpcException({
+        statusCode: 400,
+        message: 'Amount must be greater than zero',
+      });
+    }
+
+    if (idempotencyKey) {
+      const existing = await firstValueFrom(
+        this.transactionClient.send(
+          { cmd: 'find_by_idempotency_key' },
+          idempotencyKey,
+        ),
+      );
+
+      if (existing) {
+        console.log('Duplicate request detected');
+
+        return {
+          message: 'Request already processed',
+          transaction: existing,
+        };
+      }
     }
 
     return this.prisma.$transaction(async (tx) => {
       const wallet = await tx.wallet.findUnique({ where: { userId } });
 
       if (!wallet) {
-        throw new NotFoundException('Wallet not found');
+        throw new RpcException({
+          statusCode: 404,
+          message: 'Wallet not found',
+        });
       }
 
       this.ensureWalletIsActive(wallet);
-
-      // Calculate Commission
-      const commissionData = await firstValueFrom(
-        this.commissionClient.send(
-          { cmd: 'calculate_commission' },
-          {
-            serviceType: 'WITHDRAW',
-            amount,
-          },
-        ),
-      );
+      let commissionData;
+      try {
+        commissionData = await firstValueFrom(
+          this.commissionClient.send(
+            { cmd: 'calculate_commission' },
+            {
+              serviceType: 'WITHDRAW',
+              amount,
+            },
+          ),
+        );
+      } catch {
+        throw new RpcException({
+          statusCode: 503,
+          message: 'Commission service unavailable',
+        });
+      }
 
       const commission = Number(commissionData.commission);
       const totalDebit = Number(commissionData.totalDebit);
 
       if (wallet.balance.lessThan(totalDebit)) {
-        throw new BadRequestException(
-          `Insufficient balance. Required ₹${totalDebit}`,
-        );
-      }
-
-      const updatedWallet = await tx.wallet.update({
-        where: { userId },
-        data: {
-          balance: {
-            decrement: totalDebit,
-          },
-        },
-      });
-
-      // Withdrawal Transaction
-      await this.rabbitMQService.publish('transaction.created', {
-        userId: wallet.userId,
-        walletId: wallet.id,
-        amount,
-        type: 'DEBIT',
-        status: 'SUCCESS',
-        description: 'Wallet Withdrawal',
-      });
-
-      // Commission Transaction
-      if (commission > 0) {
-        await this.rabbitMQService.publish('transaction.created', {
-          userId: wallet.userId,
-          walletId: wallet.id,
-          amount: commission,
-          type: 'DEBIT',
-          status: 'SUCCESS',
-          description: 'Withdrawal Commission',
+        throw new RpcException({
+          statusCode: 400,
+          message: 'Insufficient balance',
         });
       }
 
-      // Notification
-      await this.rabbitMQService.publish('wallet.notification', {
-        userId: wallet.userId,
-        event: 'WITHDRAW',
-        amount,
-        commission,
-        totalDebit,
-        balance: updatedWallet.balance,
-      });
+      let walletTxn;
+      try {
+        walletTxn = await firstValueFrom(
+          this.transactionClient.send(
+            { cmd: 'create_transaction' },
+            {
+              userId: wallet.userId,
+              walletId: wallet.id,
+              amount,
+              rollbackAmount: totalDebit,
+              type: 'DEBIT',
+              status: 'INITIATED',
+              description: 'Wallet Withdrawal',
+            },
+          ),
+        );
+      } catch {
+        throw new RpcException({
+          statusCode: 503,
+          message: 'Transaction service unavailable',
+        });
+      }
+
+      let updatedWallet: Wallet;
+      try {
+        // const TEST_ROLLBACK = true;
+        await firstValueFrom(
+          this.transactionClient.send(
+            { cmd: 'transaction_processing' },
+            { referenceId: walletTxn.referenceId },
+          ),
+        );
+
+        // if (TEST_ROLLBACK) {
+        //   throw new Error('Testing rollback');
+        // }
+
+        updatedWallet = await tx.wallet.update({
+          where: { userId },
+          data: {
+            balance: {
+              decrement: totalDebit,
+            },
+          },
+        });
+
+        await firstValueFrom(
+          this.transactionClient.send(
+            { cmd: 'transaction_success' },
+            { referenceId: walletTxn.referenceId },
+          ),
+        );
+      } catch (error) {
+        await firstValueFrom(
+          this.transactionClient.send(
+            { cmd: 'transaction_rollback_pending' },
+            { referenceId: walletTxn.referenceId },
+          ),
+        );
+
+        if (error instanceof RpcException) {
+          throw error;
+        }
+
+        throw new RpcException({
+          statusCode: 500,
+          message: 'Transaction failed. Rollback initiated.',
+        });
+      }
+
+      if (commission > 0) {
+        let commissionTxn;
+        try {
+          commissionTxn = await firstValueFrom(
+            this.transactionClient.send(
+              { cmd: 'create_transaction' },
+              {
+                userId: wallet.userId,
+                walletId: wallet.id,
+                amount: commission,
+                rollbackAmount: commission,
+                type: 'DEBIT',
+                status: 'INITIATED',
+                description: 'Withdrawal Commission',
+              },
+            ),
+          );
+          await firstValueFrom(
+            this.transactionClient.send(
+              { cmd: 'transaction_processing' },
+              { referenceId: commissionTxn.referenceId },
+            ),
+          );
+
+          await firstValueFrom(
+            this.transactionClient.send(
+              { cmd: 'transaction_success' },
+              { referenceId: commissionTxn.referenceId },
+            ),
+          );
+        } catch (error) {
+          await firstValueFrom(
+            this.transactionClient.send(
+              { cmd: 'transaction_rollback_pending' },
+              { referenceId: walletTxn.referenceId },
+            ),
+          );
+          throw error;
+        }
+      }
+
+      try {
+        await this.rabbitMQService.publish('wallet.notification', {
+          userId: wallet.userId,
+          event: 'WITHDRAW',
+          amount,
+          commission,
+          totalDebit,
+          balance: updatedWallet.balance,
+        });
+      } catch (error) {
+        console.log('Notification Failed', error);
+      }
 
       return {
         message: 'Money withdrawn successfully',
@@ -242,31 +477,75 @@ export class WalletService {
     );
   }
 
-  async transferMoney(senderUserId: string, dto: TransferMoneyDto) {
+  async transferMoney(
+    senderUserId: string,
+    dto: TransferMoneyDto,
+    idempotencyKey?: string,
+  ) {
     console.log('===== TRANSFER START =====');
     console.log('Sender:', senderUserId);
     console.log(dto);
 
-    // Find Receiver
-    const receiver = await firstValueFrom(
-      this.authClient.send({ cmd: 'find_user_by_email' }, dto.receiverEmail),
-    );
+    if (dto.amount <= 0) {
+      throw new RpcException({
+        statusCode: 400,
+        message: 'Amount must be greater than zero',
+      });
+    }
 
-    console.log('Receiver Found');
-    console.log(receiver);
+    let receiver;
+
+    try {
+      receiver = await firstValueFrom(
+        this.authClient.send({ cmd: 'find_user_by_email' }, dto.receiverEmail),
+      );
+    } catch {
+      throw new RpcException({
+        statusCode: 503,
+        message: 'Auth service unavailable',
+      });
+    }
 
     if (!receiver) {
-      throw new NotFoundException('Receiver not found');
+      throw new RpcException({
+        statusCode: 404,
+        message: 'Receiver not found',
+      });
     }
 
     if (receiver.id === senderUserId) {
-      throw new BadRequestException('You cannot transfer money to yourself');
+      throw new RpcException({
+        statusCode: 400,
+        message: 'You cannot transfer money to yourself',
+      });
+    }
+
+    if (idempotencyKey) {
+      try {
+        const existing = await firstValueFrom(
+          this.transactionClient.send(
+            { cmd: 'find_by_idempotency_key' },
+            idempotencyKey,
+          ),
+        );
+
+        if (existing) {
+          return {
+            message: 'Request already processed',
+            transaction: existing,
+          };
+        }
+      } catch {
+        throw new RpcException({
+          statusCode: 503,
+          message: 'Transaction service unavailable',
+        });
+      }
     }
 
     return this.prisma.$transaction(async (tx) => {
       const transferGroupId = randomUUID();
 
-      // Sender Wallet
       const senderWallet = await tx.wallet.findUnique({
         where: {
           userId: senderUserId,
@@ -274,12 +553,14 @@ export class WalletService {
       });
 
       if (!senderWallet) {
-        throw new NotFoundException('Sender wallet not found');
+        throw new RpcException({
+          statusCode: 404,
+          message: 'Sender wallet not found',
+        });
       }
 
       this.ensureWalletIsActive(senderWallet);
 
-      // Receiver Wallet
       const receiverWallet = await tx.wallet.findUnique({
         where: {
           userId: receiver.id,
@@ -287,108 +568,283 @@ export class WalletService {
       });
 
       if (!receiverWallet) {
-        throw new NotFoundException('Receiver wallet not found');
+        throw new RpcException({
+          statusCode: 404,
+          message: 'Receiver wallet not found',
+        });
       }
 
       this.ensureWalletIsActive(receiverWallet);
 
-      // Commission
-      const commissionData = await firstValueFrom(
-        this.commissionClient.send(
-          { cmd: 'calculate_commission' },
-          {
-            serviceType: 'TRANSFER',
-            amount: dto.amount,
-          },
-        ),
-      );
+      let commissionData;
+
+      try {
+        commissionData = await firstValueFrom(
+          this.commissionClient.send(
+            { cmd: 'calculate_commission' },
+            {
+              serviceType: 'TRANSFER',
+              amount: dto.amount,
+            },
+          ),
+        );
+      } catch {
+        throw new RpcException({
+          statusCode: 503,
+          message: 'Commission service unavailable',
+        });
+      }
 
       const commission = Number(commissionData.commission);
       const totalDebit = Number(commissionData.totalDebit);
 
       if (senderWallet.balance.lessThan(totalDebit)) {
-        throw new BadRequestException('Insufficient balance');
+        throw new RpcException({
+          statusCode: 400,
+          message: 'Insufficient balance',
+        });
       }
 
-      // Debit Sender
-      const updatedSenderWallet = await tx.wallet.update({
-        where: {
-          userId: senderUserId,
-        },
-        data: {
-          balance: {
-            decrement: totalDebit,
+      let senderTxn: any;
+
+      try {
+        senderTxn = await firstValueFrom(
+          this.transactionClient.send(
+            { cmd: 'create_transaction' },
+            {
+              userId: senderWallet.userId,
+              walletId: senderWallet.id,
+              receiverUserId: receiver.id,
+              amount: dto.amount,
+              rollbackAmount: totalDebit,
+              type: 'DEBIT',
+              status: 'INITIATED',
+              description: `Transferred to ${receiver.email}`,
+              transferGroupId,
+              idempotencyKey,
+            },
+          ),
+        );
+      } catch {
+        throw new RpcException({
+          statusCode: 503,
+          message: 'Unable to create sender transaction',
+        });
+      }
+
+      let receiverTxn: any;
+
+      try {
+        receiverTxn = await firstValueFrom(
+          this.transactionClient.send(
+            { cmd: 'create_transaction' },
+            {
+              userId: receiverWallet.userId,
+              walletId: receiverWallet.id,
+              receiverUserId: senderWallet.userId,
+              amount: dto.amount,
+              rollbackAmount: dto.amount,
+              type: 'CREDIT',
+              status: 'INITIATED',
+              description: `Received from ${senderUserId}`,
+              transferGroupId,
+            },
+          ),
+        );
+      } catch {
+        throw new RpcException({
+          statusCode: 503,
+          message: 'Unable to create receiver transaction',
+        });
+      }
+
+      let commissionTxn: any = null;
+
+      if (commission > 0) {
+        try {
+          commissionTxn = await firstValueFrom(
+            this.transactionClient.send(
+              { cmd: 'create_transaction' },
+              {
+                userId: senderWallet.userId,
+                walletId: senderWallet.id,
+                amount: commission,
+                rollbackAmount: commission,
+                type: 'DEBIT',
+                status: 'INITIATED',
+                description: 'Transfer Commission',
+                transferGroupId,
+              },
+            ),
+          );
+        } catch {
+          throw new RpcException({
+            statusCode: 503,
+            message: 'Unable to create commission transaction',
+          });
+        }
+      }
+
+      try {
+        await firstValueFrom(
+          this.transactionClient.send(
+            { cmd: 'transaction_processing' },
+            {
+              referenceId: senderTxn.referenceId,
+            },
+          ),
+        );
+
+        await firstValueFrom(
+          this.transactionClient.send(
+            { cmd: 'transaction_processing' },
+            {
+              referenceId: receiverTxn.referenceId,
+            },
+          ),
+        );
+
+        if (commissionTxn) {
+          await firstValueFrom(
+            this.transactionClient.send(
+              { cmd: 'transaction_processing' },
+              {
+                referenceId: commissionTxn.referenceId,
+              },
+            ),
+          );
+        }
+      } catch {
+        throw new RpcException({
+          statusCode: 503,
+          message: 'Unable to update transaction status',
+        });
+      }
+
+      let updatedSenderWallet: Wallet;
+      let updatedReceiverWallet: Wallet;
+
+      try {
+        // const TEST_ROLLBACK = true;
+        // if (TEST_ROLLBACK) {
+        //   throw new Error('Testing Transfer Rollback');
+        // }
+
+        updatedSenderWallet = await tx.wallet.update({
+          where: {
+            userId: senderUserId,
           },
-        },
-      });
-
-      // Credit Receiver
-      const updatedReceiverWallet = await tx.wallet.update({
-        where: {
-          userId: receiver.id,
-        },
-        data: {
-          balance: {
-            increment: dto.amount,
+          data: {
+            balance: {
+              decrement: totalDebit,
+            },
           },
-        },
-      });
+        });
 
-      // Commission Transaction
-      console.log('PUBLISH Commission');
-      await this.rabbitMQService.publish('transaction.created', {
-        userId: senderWallet.userId,
-        walletId: senderWallet.id,
-        amount: commission,
-        type: 'DEBIT',
-        status: 'SUCCESS',
-        description: 'Transfer Commission',
-        transferGroupId,
-      });
+        updatedReceiverWallet = await tx.wallet.update({
+          where: {
+            userId: receiver.id,
+          },
+          data: {
+            balance: {
+              increment: dto.amount,
+            },
+          },
+        });
 
-      // Sender Transaction
-      console.log('PUBLSINING SENDER DEBIT');
-      await this.rabbitMQService.publish('transaction.created', {
-        userId: senderWallet.userId,
-        receiverUserId: receiver.id,
-        walletId: senderWallet.id,
-        amount: dto.amount,
-        type: 'DEBIT',
-        status: 'SUCCESS',
-        description: `Transferred to ${receiver.email}`,
-        transferGroupId,
-      });
+        await firstValueFrom(
+          this.transactionClient.send(
+            { cmd: 'transaction_success' },
+            {
+              referenceId: senderTxn.referenceId,
+            },
+          ),
+        );
 
-      // Receiver Transaction
-      console.log('PUBLISHING RECEIVER CREDIT');
-      await this.rabbitMQService.publish('transaction.created', {
-        userId: receiverWallet.userId,
-        receiverUserId: senderWallet.userId,
-        walletId: receiverWallet.id,
-        amount: dto.amount,
-        type: 'CREDIT',
-        status: 'SUCCESS',
-        description: `Received from ${senderWallet.userId}`,
-        transferGroupId,
-      });
+        await firstValueFrom(
+          this.transactionClient.send(
+            { cmd: 'transaction_success' },
+            {
+              referenceId: receiverTxn.referenceId,
+            },
+          ),
+        );
 
-      // Sender Notification
-      await this.rabbitMQService.publish('wallet.notification', {
-        userId: senderWallet.userId,
-        event: 'TRANSFER_SENT',
-        amount: dto.amount,
-        commission,
-        totalDebit,
-        balance: updatedSenderWallet.balance,
-      });
+        if (commissionTxn) {
+          await firstValueFrom(
+            this.transactionClient.send(
+              { cmd: 'transaction_success' },
+              {
+                referenceId: commissionTxn.referenceId,
+              },
+            ),
+          );
+        }
+      } catch (error) {
+        try {
+          await firstValueFrom(
+            this.transactionClient.send(
+              { cmd: 'transaction_rollback_pending' },
+              {
+                referenceId: senderTxn.referenceId,
+              },
+            ),
+          );
+        } catch {}
 
-      // Receiver Notification
-      await this.rabbitMQService.publish('wallet.notification', {
-        userId: receiverWallet.userId,
-        event: 'TRANSFER_RECEIVED',
-        amount: dto.amount,
-        balance: updatedReceiverWallet.balance,
-      });
+        try {
+          await firstValueFrom(
+            this.transactionClient.send(
+              { cmd: 'transaction_rollback_pending' },
+              {
+                referenceId: receiverTxn.referenceId,
+              },
+            ),
+          );
+        } catch {}
+
+        if (commissionTxn) {
+          try {
+            await firstValueFrom(
+              this.transactionClient.send(
+                { cmd: 'transaction_rollback_pending' },
+                {
+                  referenceId: commissionTxn.referenceId,
+                },
+              ),
+            );
+          } catch {}
+        }
+
+        if (error instanceof RpcException) {
+          throw error;
+        }
+
+        throw new RpcException({
+          statusCode: 500,
+          message: 'Transfer failed. Rollback initiated.',
+        });
+      }
+
+      try {
+        await this.rabbitMQService.publish('wallet.notification', {
+          userId: senderWallet.userId,
+          event: 'TRANSFER_SENT',
+          amount: dto.amount,
+          commission,
+          totalDebit,
+          balance: updatedSenderWallet.balance,
+        });
+
+        await this.rabbitMQService.publish('wallet.notification', {
+          userId: receiverWallet.userId,
+          event: 'TRANSFER_RECEIVED',
+          amount: dto.amount,
+          balance: updatedReceiverWallet.balance,
+        });
+      } catch (error) {
+        console.log('Notification Failed', error);
+      }
 
       return {
         message: 'Money transferred successfully',
@@ -400,18 +856,6 @@ export class WalletService {
         transferGroupId,
       };
     });
-  }
-
-  async getTransactionByReference(userId: string, referenceId: string) {
-    return firstValueFrom(
-      this.transactionClient.send(
-        { cmd: 'get_transaction_reference' },
-        {
-          userId,
-          referenceId,
-        },
-      ),
-    );
   }
 
   async rollbackTransaction(userId: string, referenceId: string) {

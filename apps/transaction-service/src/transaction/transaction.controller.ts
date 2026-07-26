@@ -17,6 +17,43 @@ export class TransactionController {
     return this.transactionService.getUserTransactions(data.userId, data.query);
   }
 
+  @MessagePattern({ cmd: 'create_transaction' })
+  createTransaction(@Payload() data: any) {
+    return this.transactionService.createTransaction(data);
+  }
+
+  @MessagePattern({ cmd: 'find_by_idempotency_key' })
+  findByIdempotencyKey(@Payload() key: string) {
+    return this.transactionService.findByIdempotencyKey(key);
+  }
+
+  @MessagePattern({ cmd: 'transaction_processing' })
+  markProcessing(@Payload() data: { referenceId: string; status: string }) {
+    return this.transactionService.markProcessing(data.referenceId);
+  }
+
+  @MessagePattern({ cmd: 'transaction_success' })
+  maekSuccess(@Payload() data: { referenceId: string; status: string }) {
+    return this.transactionService.markSuccess(data.referenceId);
+  }
+
+  @MessagePattern({ cmd: 'transaction_rollback_pending' })
+  markRollbackPending(
+    @Payload() data: { referenceId: string; status: string },
+  ) {
+    return this.transactionService.markRollbackPending(data.referenceId);
+  }
+
+  @MessagePattern({ cmd: 'rollback_pending_transactions' })
+  rollbackPendingTransactions() {
+    return this.transactionService.getRollbackPendingTransactions();
+  }
+
+  @MessagePattern({ cmd: 'transaction_rolled_back' })
+  markRolledBack(@Payload() data: { referenceId: string; status: string }) {
+    return this.transactionService.markRolledBack(data.referenceId);
+  }
+
   @MessagePattern({ cmd: 'get_transaction_reference' })
   getTransactionReference(
     @Payload()
@@ -65,13 +102,13 @@ export class TransactionController {
     return this.transactionService.getStatus(data.userId, data.referenceId);
   }
 
-  @MessagePattern({
-    cmd: 'update_transaction_status',
-  })
-  updateStatus(@Payload() dto: any) {
-    return this.transactionService.updateTransactionStatus(
-      dto.referenceId,
-      dto.status,
-    );
-  }
+  //   @MessagePattern({
+  //     cmd: 'update_transaction_status',
+  //   })
+  //   updateStatus(@Payload() dto: any) {
+  //     return this.transactionService.updateTransactionStatus(
+  //       dto.referenceId,
+  //       dto.status,
+  //     );
+  //   }
 }
